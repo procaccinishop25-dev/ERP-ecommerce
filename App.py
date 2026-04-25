@@ -33,15 +33,15 @@ if st.button("Inserisci ordine"):
             "total_amount": 100
         }
 
-        # 1. INSERISCI ORDINE
+        # 1. ORDINE
         supabase.table("orders").insert(data).execute()
 
-        # 2. SIMULAZIONE ORDER ITEMS
+        # 2. ITEMS TEST
         items = [
             {"sku": "SKU1", "quantity": 1}
         ]
 
-        # 3. MOVIMENTI + INVENTORY UPDATE
+        # 3. MOVIMENTI + INVENTORY
         for item in items:
             sku = item["sku"]
             qty = item["quantity"]
@@ -85,14 +85,8 @@ if st.button("Inserisci ordine"):
 st.subheader("📦 Ordini salvati")
 
 try:
-    response = supabase.table("orders").select("*").order("created_at", desc=True).limit(10).execute()
-    orders = response.data
-
-    if orders:
-        st.dataframe(orders)
-    else:
-        st.info("Nessun ordine presente")
-
+    orders = supabase.table("orders").select("*").order("created_at", desc=True).limit(10).execute().data
+    st.dataframe(orders)
 except Exception as e:
     st.error(f"Errore ordini: {e}")
 
@@ -103,65 +97,67 @@ except Exception as e:
 st.subheader("📦 Movimenti magazzino")
 
 try:
-    response = supabase.table("inventory_movements").select("*").order("created_at", desc=True).limit(10).execute()
-    movements = response.data
-
-    if movements:
-        st.dataframe(movements)
-    else:
-        st.info("Nessun movimento presente")
-
+    movements = supabase.table("inventory_movements").select("*").order("created_at", desc=True).limit(10).execute().data
+    st.dataframe(movements)
 except Exception as e:
     st.error(f"Errore movimenti: {e}")
 
 # ----------------------------
-# 📊 INVENTORY (STOCK REALE DB)
+# 📦 INVENTORY
 # ----------------------------
 
 st.subheader("📦 Inventory (stock reale)")
 
 try:
-    response = supabase.table("inventory").select("*").execute()
-    inventory = response.data
-
-    if inventory:
-        st.dataframe(inventory)
-    else:
-        st.info("Nessun inventory presente")
-
+    inventory = supabase.table("inventory").select("*").execute().data
+    st.dataframe(inventory)
 except Exception as e:
     st.error(f"Errore inventory: {e}")
 
 # ----------------------------
-# 📊 STOCK CALCOLATO (BACKUP LOGICO)
+# 📊 PROFITTO ORDINI
 # ----------------------------
 
-st.subheader("📊 Stock calcolato (da movimenti)")
+st.subheader("💰 Profitto ordini (reale)")
 
 try:
-    response = supabase.table("inventory_movements").select("*").execute()
-    movements = response.data
+    orders = supabase.table("orders").select("*").execute().data
+    items = supabase.table("order_items").select("*").execute().data
+    products = supabase.table("products").select("*").execute().data
+    fees = supabase.table("fees").select("*").execute().data
 
-    stock = {}
+    product_cost_map = {p["sku"]: p["cost"] for p in products}
 
-    for m in movements:
-        sku = m["sku"]
-        qty = m["quantity"]
+    result = []
 
-        if sku not in stock:
-            stock[sku] = 0
+    for order in orders:
+        order_id = order["order_id"]
+        revenue = order["total_amount"]
 
-        if m["type"] == "IN":
-            stock[sku] += qty
-        elif m["type"] == "OUT":
-            stock[sku] -= qty
+        order_items = [i for i in items if i["order_id"] == order_id]
 
-    if stock:
-        st.dataframe([
-            {"sku": k, "stock": v} for k, v in stock.items()
-        ])
-    else:
-        st.info("Nessun dato stock")
+        product_cost = 0
+
+        for item in order_items:
+            sku = item["sku"]
+            qty = item["quantity"]
+            cost = product_cost_map.get(sku, 0)
+
+            product_cost += cost * qty
+
+        order_fees = sum(f["amount"] for f in fees if f["order_id"] == order_id)
+
+        profit = revenue - product_cost - order_fees
+
+        result.append({
+            "order_id": order_id,
+            "revenue": revenue,
+            "cost": product_cost,
+            "fees": order_fees,
+            "profit": profit
+        })
+
+    st.dataframe(result)
 
 except Exception as e:
-    st.error(f"Errore stock: {e}")
+    st.error(f"Errore profitto: {e}")
