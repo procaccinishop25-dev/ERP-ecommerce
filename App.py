@@ -10,13 +10,13 @@ supabase = create_client(
 )
 
 # =========================
-# APP
+# APP CONFIG
 # =========================
 st.set_page_config(page_title="ERP Ecommerce", layout="wide")
 st.title("📊 ERP Ecommerce")
 
 # =========================
-# STOCK ENGINE (CORE ERP)
+# STOCK ENGINE (ERP CORE)
 # =========================
 def get_stock(product_id):
 
@@ -48,7 +48,7 @@ menu = st.sidebar.radio("Menu", ["📦 Prodotti", "🛒 Ordini", "📊 Dashboard
 
 
 # =========================
-# 📦 PRODOTTI (UI SAAS STYLE)
+# 📦 PRODOTTI (SCALABILE UI)
 # =========================
 if menu == "📦 Prodotti":
 
@@ -91,51 +91,59 @@ if menu == "📦 Prodotti":
     st.divider()
 
     # -------------------------
-    # PRODUCT LIST (SAAS STYLE)
+    # FILTERS
     # -------------------------
-    st.subheader("📋 Inventario")
+    col1, col2 = st.columns(2)
 
+    with col1:
+        search = st.text_input("🔎 Cerca prodotto")
+
+    with col2:
+        stock_filter = st.selectbox("Filtro stock", ["Tutti", "OK", "LOW", "OUT"])
+
+    # -------------------------
+    # LOAD PRODUCTS
+    # -------------------------
     products = supabase.table("products").select("*").execute().data
 
-    if products:
-
-        for p in products:
-
-            stock = get_stock(p["id"])
-
-            if stock <= 0:
-                status = "🔴 OUT OF STOCK"
-            elif stock < 5:
-                status = "🟠 LOW STOCK"
-            else:
-                status = "🟢 OK"
-
-            col1, col2, col3 = st.columns([3, 2, 2])
-
-            with col1:
-                st.markdown(f"""
-                ### 📦 {p['name']}
-                SKU: `{p['sku']}`  
-                Fornitore: {p['supplier']}
-                """)
-
-            with col2:
-                st.markdown(f"""
-                ### 📊 Stock
-                **{stock}**  
-                {status}
-                """)
-
-            with col3:
-                st.markdown(f"""
-                ### 💰 Costo
-                €{p['cost']}
-                """)
-
-            st.divider()
-
-    else:
+    if not products:
         st.info("Nessun prodotto")
+        st.stop()
+
+    rows = []
+
+    for p in products:
+
+        stock = get_stock(p["id"])
+
+        if stock <= 0:
+            status = "OUT"
+        elif stock < 5:
+            status = "LOW"
+        else:
+            status = "OK"
+
+        # search filter
+        if search:
+            if search.lower() not in p["name"].lower() and search.lower() not in (p["sku"] or "").lower():
+                continue
+
+        # stock filter
+        if stock_filter != "Tutti" and status != stock_filter:
+            continue
+
+        rows.append({
+            "Nome": p["name"],
+            "SKU": p["sku"],
+            "Fornitore": p["supplier"],
+            "Stock": stock,
+            "Stato": status,
+            "Costo": p["cost"]
+        })
+
+    st.subheader(f"📋 Prodotti ({len(rows)})")
+
+    st.dataframe(rows, use_container_width=True, height=600)
 
 
 # =========================
@@ -176,7 +184,7 @@ elif menu == "🛒 Ordini":
     st.divider()
 
     # -------------------------
-    # ORDERS LIST
+    # ORDERS
     # -------------------------
     orders = supabase.table("orders").select("*").execute().data
     products = supabase.table("products").select("*").execute().data
@@ -219,7 +227,6 @@ elif menu == "🛒 Ordini":
 
         product_id = product_map[product_name]
 
-        # salva item
         supabase.table("order_items").insert({
             "order_id": order_id,
             "product_id": product_id,
@@ -228,18 +235,14 @@ elif menu == "🛒 Ordini":
             "returned": returned
         }).execute()
 
-        # stock logic
         if returned:
-
             supabase.table("stock_movements").insert({
                 "product_id": product_id,
                 "type": "return",
                 "quantity": quantity,
                 "reference": f"return:{order_id}"
             }).execute()
-
         else:
-
             supabase.table("stock_movements").insert({
                 "product_id": product_id,
                 "type": "out",
@@ -302,4 +305,4 @@ elif menu == "📊 Dashboard":
     with col2:
         st.metric("🛒 Ordini", len(orders))
 
-    st.write("Prossimo step: profitto reale, margini, KPI")
+    st.write("Prossimo step: profitto reale, KPI, margini")
