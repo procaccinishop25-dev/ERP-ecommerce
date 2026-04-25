@@ -1,38 +1,62 @@
 import streamlit as st
 from supabase import create_client
+import pandas as pd
 
+# ======================
+# SUPABASE
+# ======================
 supabase = create_client(
     st.secrets["SUPABASE_URL"],
     st.secrets["SUPABASE_KEY"]
 )
 
-# 👉 INPUT ORDINE (come da Amazon/eBay)
-sku = "TSHIRT-001"
-sell_price = 25
-fees = 5
+st.set_page_config(page_title="ERP Dashboard", layout="wide")
 
-# 1. prendi prodotto dal DB
-product_res = supabase.table("products").select("*").eq("sku", sku).single().execute()
+st.title("📊 Ecommerce ERP Dashboard")
 
-product = product_res.data
-cost_price = product["cost_price"]
+# ======================
+# LOAD DATA
+# ======================
+orders_res = supabase.table("orders").select("*").execute()
+products_res = supabase.table("products").select("*").execute()
 
-# 2. calcolo profitto
-profit = sell_price - cost_price - fees
+orders = pd.DataFrame(orders_res.data)
+products = pd.DataFrame(products_res.data)
 
-# 3. salva ordine
-order = {
-    "marketplace": "amazon",
-    "country": "IT",
-    "order_date": "now",
-    "total_amount": sell_price,
-    "fees": fees,
-    "shipping_cost": 0,
-    "net_profit": profit
-}
+# ======================
+# KPI SECTION
+# ======================
+col1, col2, col3 = st.columns(3)
 
-res = supabase.table("orders").insert(order).execute()
+if not orders.empty:
+    total_revenue = orders["total_amount"].sum()
+    total_profit = orders["net_profit"].sum()
+    total_orders = len(orders)
+else:
+    total_revenue = total_profit = total_orders = 0
 
-st.success("Order created automatically")
-st.write("Profit:", profit)
-st.write(res)
+col1.metric("💰 Revenue", f"€ {total_revenue}")
+col2.metric("📈 Profit", f"€ {total_profit}")
+col3.metric("📦 Orders", total_orders)
+
+st.divider()
+
+# ======================
+# ORDERS TABLE
+# ======================
+st.subheader("📦 Orders")
+
+if not orders.empty:
+    st.dataframe(orders, use_container_width=True)
+else:
+    st.info("No orders yet")
+
+# ======================
+# PRODUCTS TABLE
+# ======================
+st.subheader("🛍️ Products")
+
+if not products.empty:
+    st.dataframe(products, use_container_width=True)
+else:
+    st.info("No products yet")
