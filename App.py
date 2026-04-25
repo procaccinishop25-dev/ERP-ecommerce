@@ -3,10 +3,10 @@ from supabase import create_client
 from datetime import datetime
 import uuid
 
-st.title("📊 ERP Ecommerce")
+st.title("📊 ERP Ecommerce (Realistico)")
 
 # ----------------------------
-# 🔌 CONNESSIONE SUPABASE
+# 🔌 SUPABASE
 # ----------------------------
 
 url = st.secrets["SUPABASE_URL"]
@@ -14,39 +14,52 @@ key = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(url, key)
 
-# ----------------------------
-# ➕ INSERIMENTO ORDINE
-# ----------------------------
+# ============================
+# ➕ ORDINE REALISTICO
+# ============================
 
-st.subheader("➕ Inserisci ordine test")
+st.subheader("➕ Inserisci ordine test (realistico)")
 
-if st.button("Inserisci ordine"):
+if st.button("Inserisci ordine Amazon"):
     try:
         order_id = str(uuid.uuid4())
 
-        data = {
+        # 🧾 ORDINE REALE SIMULATO
+        order_data = {
             "marketplace": "amazon",
             "order_id": order_id,
             "order_date": datetime.utcnow().isoformat(),
             "status": "shipped",
             "currency": "EUR",
-            "total_amount": 100
+            "total_amount": 129.99
         }
 
-        # 1. ORDINE
-        supabase.table("orders").insert(data).execute()
+        supabase.table("orders").insert(order_data).execute()
 
-        # 2. ITEMS TEST
+        # 📦 ORDER ITEMS REALI
         items = [
-            {"sku": "SKU1", "quantity": 1}
+            {"sku": "NIKE-AIR-M-42", "quantity": 1},
+            {"sku": "APPLE-CHARGER-20W", "quantity": 2}
         ]
 
-        # 3. MOVIMENTI + INVENTORY
+        # 💰 COSTI PRODOTTI REALI (semplificati)
+        product_costs = {
+            "NIKE-AIR-M-42": 55.00,
+            "APPLE-CHARGER-20W": 8.50
+        }
+
+        # 📊 FEES AMAZON SIMULATE
+        fees_total = 12.50
+
+        # ============================
+        # 📦 MAGAZZINO + MOVIMENTI
+        # ============================
+
         for item in items:
             sku = item["sku"]
             qty = item["quantity"]
 
-            # MOVIMENTO MAGAZZINO (STORICO)
+            # MOVIMENTO STOCK
             supabase.table("inventory_movements").insert({
                 "sku": sku,
                 "type": "OUT",
@@ -55,12 +68,13 @@ if st.button("Inserisci ordine"):
                 "reason": "sale"
             }).execute()
 
-            # INVENTORY (STOCK REALE)
+            # INVENTORY UPDATE
             inv = supabase.table("inventory").select("*").eq("sku", sku).execute().data
 
+            cost = product_costs.get(sku, 0)
+
             if inv:
-                current_stock = inv[0]["stock"]
-                new_stock = current_stock - qty
+                new_stock = inv[0]["stock"] - qty
 
                 supabase.table("inventory").update({
                     "stock": new_stock,
@@ -73,91 +87,80 @@ if st.button("Inserisci ordine"):
                     "stock": -qty
                 }).execute()
 
-        st.success("✅ Ordine + magazzino aggiornati!")
+        st.success("✅ Ordine Amazon creato (realistico)")
 
     except Exception as e:
-        st.error(f"❌ Errore: {e}")
+        st.error(f"Errore: {e}")
 
-# ----------------------------
+# ============================
 # 📦 ORDINI
-# ----------------------------
+# ============================
 
-st.subheader("📦 Ordini salvati")
+st.subheader("📦 Ordini")
 
-try:
-    orders = supabase.table("orders").select("*").order("created_at", desc=True).limit(10).execute().data
-    st.dataframe(orders)
-except Exception as e:
-    st.error(f"Errore ordini: {e}")
+orders = supabase.table("orders").select("*").order("created_at", desc=True).limit(10).execute().data
+st.dataframe(orders)
 
-# ----------------------------
-# 📜 MOVIMENTI MAGAZZINO
-# ----------------------------
+# ============================
+# 📜 MOVIMENTI
+# ============================
 
 st.subheader("📦 Movimenti magazzino")
 
-try:
-    movements = supabase.table("inventory_movements").select("*").order("created_at", desc=True).limit(10).execute().data
-    st.dataframe(movements)
-except Exception as e:
-    st.error(f"Errore movimenti: {e}")
+movements = supabase.table("inventory_movements").select("*").order("created_at", desc=True).limit(10).execute().data
+st.dataframe(movements)
 
-# ----------------------------
+# ============================
 # 📦 INVENTORY
-# ----------------------------
+# ============================
 
-st.subheader("📦 Inventory (stock reale)")
+st.subheader("📦 Stock attuale")
 
-try:
-    inventory = supabase.table("inventory").select("*").execute().data
-    st.dataframe(inventory)
-except Exception as e:
-    st.error(f"Errore inventory: {e}")
+inventory = supabase.table("inventory").select("*").execute().data
+st.dataframe(inventory)
 
-# ----------------------------
-# 📊 PROFITTO ORDINI
-# ----------------------------
+# ============================
+# 💰 PROFITTO REALE
+# ============================
 
 st.subheader("💰 Profitto ordini (reale)")
 
-try:
-    orders = supabase.table("orders").select("*").execute().data
-    items = supabase.table("order_items").select("*").execute().data
-    products = supabase.table("products").select("*").execute().data
-    fees = supabase.table("fees").select("*").execute().data
+orders = supabase.table("orders").select("*").execute().data
+items = supabase.table("order_items").select("*").execute().data
+fees = supabase.table("fees").select("*").execute().data
 
-    product_cost_map = {p["sku"]: p["cost"] for p in products}
+# costi realistici
+product_costs = {
+    "NIKE-AIR-M-42": 55.00,
+    "APPLE-CHARGER-20W": 8.50
+}
 
-    result = []
+result = []
 
-    for order in orders:
-        order_id = order["order_id"]
-        revenue = order["total_amount"]
+for order in orders:
+    order_id = order["order_id"]
 
-        order_items = [i for i in items if i["order_id"] == order_id]
+    revenue = order["total_amount"]
 
-        product_cost = 0
+    order_items = [i for i in items if i["order_id"] == order_id]
 
-        for item in order_items:
-            sku = item["sku"]
-            qty = item["quantity"]
-            cost = product_cost_map.get(sku, 0)
+    cost = 0
 
-            product_cost += cost * qty
+    for item in order_items:
+        sku = item["sku"]
+        qty = item["quantity"]
+        cost += product_costs.get(sku, 0) * qty
 
-        order_fees = sum(f["amount"] for f in fees if f["order_id"] == order_id)
+    fee_cost = 12.50  # simulazione Amazon fee
 
-        profit = revenue - product_cost - order_fees
+    profit = revenue - cost - fee_cost
 
-        result.append({
-            "order_id": order_id,
-            "revenue": revenue,
-            "cost": product_cost,
-            "fees": order_fees,
-            "profit": profit
-        })
+    result.append({
+        "order_id": order_id,
+        "revenue": revenue,
+        "cost": cost,
+        "fees": fee_cost,
+        "profit": profit
+    })
 
-    st.dataframe(result)
-
-except Exception as e:
-    st.error(f"Errore profitto: {e}")
+st.dataframe(result)
