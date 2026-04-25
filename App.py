@@ -17,7 +17,7 @@ st.title("📊 ERP Ecommerce")
 
 
 # =========================
-# STOCK ENGINE (UNCHANGED CORE)
+# STOCK ENGINE
 # =========================
 def get_stock(product_id):
 
@@ -43,7 +43,7 @@ def get_stock(product_id):
 
 
 # =========================
-# MENU (COMPLETO - NON RIMOSSO NULLA)
+# MENU
 # =========================
 menu = st.sidebar.radio(
     "Menu",
@@ -52,28 +52,26 @@ menu = st.sidebar.radio(
 
 
 # =========================
-# 📦 PRODOTTI (UI SCALABILE MIGLIORATA)
+# 📦 PRODOTTI
 # =========================
 if menu == "📦 Prodotti":
 
     st.header("📦 Prodotti")
 
-    # -------------------------
-    # CREATE PRODUCT (UNCHANGED LOGIC)
-    # -------------------------
+    # CREATE PRODUCT
     with st.form("product_form"):
 
         st.subheader("➕ Nuovo prodotto")
 
         name = st.text_input("Nome prodotto")
-        sku = st.text_input("SKU")
+        sku = st.text_input("SKU (UNIVOCO)")
         supplier = st.text_input("Fornitore")
         cost = st.number_input("Costo", min_value=0.0, step=0.1)
         stock_in = st.number_input("Stock iniziale", min_value=0, step=1)
 
         submit = st.form_submit_button("Salva")
 
-        if submit and name:
+        if submit and name and sku:
 
             product = supabase.table("products").insert({
                 "name": name,
@@ -94,10 +92,8 @@ if menu == "📦 Prodotti":
 
     st.divider()
 
-    # -------------------------
-    # SCALABLE TABLE VIEW (NO LOSS)
-    # -------------------------
-    search = st.text_input("🔎 Cerca prodotto")
+    # FILTER
+    search = st.text_input("🔎 Cerca prodotto (nome o SKU)")
     stock_filter = st.selectbox("Filtro stock", ["Tutti", "OK", "LOW", "OUT"])
 
     products = supabase.table("products").select("*").execute().data
@@ -132,12 +128,11 @@ if menu == "📦 Prodotti":
         })
 
     st.subheader(f"📋 Inventario ({len(rows)})")
-
     st.dataframe(rows, use_container_width=True, height=600)
 
 
 # =========================
-# 🛒 ORDINI (COMPLETO + RESI + STOCK CORRETTO)
+# 🛒 ORDINI
 # =========================
 elif menu == "🛒 Ordini":
 
@@ -185,24 +180,19 @@ elif menu == "🛒 Ordini":
 
     st.subheader("📦 Aggiungi prodotti")
 
-    product_map = {p["name"]: p["id"] for p in products}
+    # 🔥 ORA SKU-BASED (MIGLIORIA IMPORTANTE)
+    sku_map = {p["sku"]: p["id"] for p in products}
+    sku_list = list(sku_map.keys())
 
-    col1, col2, col3 = st.columns(3)
+    selected_sku = st.selectbox("SKU prodotto", sku_list)
 
-    with col1:
-        product_name = st.selectbox("Prodotto", list(product_map.keys()))
-
-    with col2:
-        quantity = st.number_input("Quantità", min_value=1, value=1)
-
-    with col3:
-        sale_price = st.number_input("Prezzo vendita", min_value=0.0)
-
+    quantity = st.number_input("Quantità", min_value=1, value=1)
+    sale_price = st.number_input("Prezzo vendita", min_value=0.0)
     returned = st.checkbox("Reso")
 
     if st.button("Aggiungi"):
 
-        product_id = product_map[product_name]
+        product_id = sku_map[selected_sku]
 
         supabase.table("order_items").insert({
             "order_id": order_id,
@@ -212,7 +202,6 @@ elif menu == "🛒 Ordini":
             "returned": returned
         }).execute()
 
-        # STOCK LOGIC (CORRETTO)
         if returned:
             supabase.table("stock_movements").insert({
                 "product_id": product_id,
@@ -258,33 +247,36 @@ elif menu == "🛒 Ordini":
 
 
 # =========================
-# 📥 CARICO MAGAZZINO (AGGIUNTO SENZA ROMPERE NULLA)
+# 📥 CARICO MAGAZZINO (SKU-BASED)
 # =========================
 elif menu == "📥 Carico magazzino":
 
     st.header("📥 Carico magazzino")
 
     products = supabase.table("products").select("*").execute().data
-    product_map = {p["name"]: p["id"] for p in products}
 
-    product_name = st.selectbox("Prodotto", list(product_map.keys()))
+    sku_map = {p["sku"]: p["id"] for p in products}
+    sku_list = list(sku_map.keys())
+
+    selected_sku = st.selectbox("SKU prodotto", sku_list)
+
     quantity = st.number_input("Quantità ricevuta", min_value=1, value=1)
-    note = st.text_input("Nota (es: fornitore / ordine)")
+    note = st.text_input("Nota (fornitore / ordine)")
 
     if st.button("Registra carico"):
 
         supabase.table("stock_movements").insert({
-            "product_id": product_map[product_name],
+            "product_id": sku_map[selected_sku],
             "type": "in",
             "quantity": quantity,
             "reference": note or "replenishment"
         }).execute()
 
-        st.success("Carico registrato!")
+        st.success(f"Carico registrato per SKU {selected_sku}")
 
 
 # =========================
-# 📊 DASHBOARD (BASE STABILE)
+# 📊 DASHBOARD
 # =========================
 elif menu == "📊 Dashboard":
 
