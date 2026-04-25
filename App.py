@@ -1,12 +1,12 @@
 from supabase import create_client
-import streamlit as st
 
+# 🔴 QUI METTI I DATI DA SUPABASE
 URL = st.secrets["SUPABASE_URL"]
 KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(URL, KEY)
 
-data = {
+order = {
     "marketplace": "amazon",
     "country": "IT",
     "order_date": "2026-04-25T10:00:00",
@@ -16,6 +16,7 @@ data = {
     "net_profit": 90
 }
 
-res = supabase.table("orders").insert(data).execute()
+response = supabase.table("orders").insert(order).execute()
 
-print(res)
+print("DONE")
+print(response)
