@@ -45,128 +45,76 @@ def get_stock(product_id):
 # =========================
 menu = st.sidebar.radio(
     "Menu",
-    ["📦 Prodotti", "🛒 Ordini", "📥 Carico magazzino", "📊 Dashboard"]
+    ["📦 Magazzino", "🚚 Dropshipping", "🛒 Ordini", "📥 Carico magazzino", "📊 Dashboard"]
 )
 
 
 # =========================
-# 📦 PRODOTTI (UI SEPARATA)
+# 📦 MAGAZZINO (STOCK)
 # =========================
-if menu == "📦 Prodotti":
+if menu == "📦 Magazzino":
 
-    st.header("📦 Prodotti")
+    st.header("📦 Magazzino")
 
-    # =========================
-    # CREA PRODOTTO
-    # =========================
-    with st.form("product_form"):
+    search = st.text_input("🔎 Cerca prodotto")
 
-        st.subheader("➕ Nuovo prodotto")
+    products = supabase.table("products") \
+        .select("*") \
+        .eq("product_type", "stock") \
+        .execute().data or []
 
-        name = st.text_input("Nome prodotto")
-        sku = st.text_input("SKU (UNIVOCO)")
-        supplier = st.text_input("Fornitore")
-        cost = st.number_input("Costo", min_value=0.0, step=0.1)
-        product_type = st.selectbox("Tipo prodotto", ["stock", "dropshipping"])
-        stock_in = st.number_input("Stock iniziale", min_value=0, step=1)
+    rows = []
 
-        submit = st.form_submit_button("Salva")
+    for p in products:
 
-        if submit and name and sku:
+        stock = get_stock(p["id"])
 
-            product = supabase.table("products").insert({
-                "name": name,
-                "sku": sku,
-                "supplier": supplier,
-                "cost": cost,
-                "product_type": product_type
-            }).execute().data[0]
-
-            if product_type == "stock":
-                supabase.table("stock_movements").insert({
-                    "product_id": product["id"],
-                    "type": "in",
-                    "quantity": stock_in,
-                    "reference": "initial_stock"
-                }).execute()
-
-            st.success("Prodotto creato!")
-            st.rerun()
-
-    st.divider()
-
-    # =========================
-    # UI SEPARATA
-    # =========================
-    tab1, tab2 = st.tabs(["📦 MAGAZZINO", "🚚 DROPSHIPPING"])
-
-
-    # =========================
-    # MAGAZZINO
-    # =========================
-    with tab1:
-
-        st.subheader("📦 Magazzino")
-
-        search = st.text_input("Cerca magazzino")
-
-        res = supabase.table("products") \
-            .select("*") \
-            .eq("product_type", "stock") \
-            .execute()
-
-        products = res.data or []
-
-        rows = []
-
-        for p in products:
-
-            stock = get_stock(p["id"])
-
-            if search and search.lower() not in (p["name"] or "").lower() and search.lower() not in (p["sku"] or "").lower():
+        if search:
+            if search.lower() not in (p["name"] or "").lower() and search.lower() not in (p["sku"] or "").lower():
                 continue
 
-            rows.append({
-                "SKU": p["sku"],
-                "Nome": p["name"],
-                "Fornitore": p["supplier"],
-                "Stock": stock,
-                "Costo": p["cost"]
-            })
+        rows.append({
+            "SKU": p["sku"],
+            "Nome": p["name"],
+            "Fornitore": p["supplier"],
+            "Stock": stock,
+            "Costo": p["cost"]
+        })
 
-        st.dataframe(rows, use_container_width=True, height=500)
+    st.subheader("📦 Prodotti in magazzino")
+    st.dataframe(rows, use_container_width=True, height=600)
 
 
-    # =========================
-    # DROPSHIPPING
-    # =========================
-    with tab2:
+# =========================
+# 🚚 DROPSHIPPING
+# =========================
+elif menu == "🚚 Dropshipping":
 
-        st.subheader("🚚 Dropshipping")
+    st.header("🚚 Dropshipping")
 
-        search = st.text_input("Cerca dropshipping")
+    search = st.text_input("🔎 Cerca prodotto dropshipping")
 
-        res = supabase.table("products") \
-            .select("*") \
-            .eq("product_type", "dropshipping") \
-            .execute()
+    products = supabase.table("products") \
+        .select("*") \
+        .eq("product_type", "dropshipping") \
+        .execute().data or []
 
-        products = res.data or []
+    rows = []
 
-        rows = []
+    for p in products:
 
-        for p in products:
-
-            if search and search.lower() not in (p["name"] or "").lower() and search.lower() not in (p["sku"] or "").lower():
+        if search:
+            if search.lower() not in (p["name"] or "").lower() and search.lower() not in (p["sku"] or "").lower():
                 continue
 
-            rows.append({
-                "SKU": p["sku"],
-                "Nome": p["name"],
-                "Costo": p["cost"]
-            })
+        rows.append({
+            "SKU": p["sku"],
+            "Nome": p["name"],
+            "Costo": p["cost"]
+        })
 
-        st.dataframe(rows, use_container_width=True, height=500)
+    st.subheader("🚚 Catalogo dropshipping")
+    st.dataframe(rows, use_container_width=True, height=600)
 
 
 # =========================
@@ -264,7 +212,7 @@ elif menu == "📥 Carico magazzino":
 
     selected_sku = st.selectbox("SKU prodotto", list(sku_map.keys()))
 
-    quantity = st.number_input("Quantità", min_value=1, value=1)
+    quantity = st.number_input("Quantità ricevuta", min_value=1, value=1)
     note = st.text_input("Nota")
 
     if st.button("Registra carico"):
@@ -282,7 +230,7 @@ elif menu == "📥 Carico magazzino":
 
             st.success("Carico registrato!")
         else:
-            st.warning("Solo prodotti stock")
+            st.warning("Questo prodotto è dropshipping")
 
 
 # =========================
@@ -290,10 +238,17 @@ elif menu == "📥 Carico magazzino":
 # =========================
 elif menu == "📊 Dashboard":
 
+    st.header("📊 Dashboard ERP")
+
     products = supabase.table("products").select("*").execute().data or []
     orders = supabase.table("orders").select("*").execute().data or []
 
-    st.metric("Prodotti", len(products))
-    st.metric("Ordini", len(orders))
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric("📦 Prodotti", len(products))
+
+    with col2:
+        st.metric("🛒 Ordini", len(orders))
 
     st.success("Sistema stabile: stock + dropshipping separati")
