@@ -88,3 +88,34 @@ try:
 
 except Exception as e:
     st.error(f"Errore caricamento magazzino: {e}")
+
+st.subheader("📊 Stock reale (calcolato)")
+
+try:
+    response = supabase.table("inventory_movements").select("*").execute()
+    movements = response.data
+
+    stock = {}
+
+    for m in movements:
+        sku = m["sku"]
+        qty = m["quantity"]
+
+        if sku not in stock:
+            stock[sku] = 0
+
+        if m["type"] == "IN":
+            stock[sku] += qty
+        elif m["type"] == "OUT":
+            stock[sku] -= qty
+
+    if stock:
+        st.write("Stock attuale per SKU:")
+        st.dataframe([
+            {"sku": k, "stock": v} for k, v in stock.items()
+        ])
+    else:
+        st.info("Nessun dato stock")
+
+except Exception as e:
+    st.error(f"Errore stock: {e}")
