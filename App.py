@@ -19,7 +19,7 @@ st.title("📊 ERP Ecommerce")
 # =========================
 # MENU
 # =========================
-menu = st.sidebar.radio("Menu", ["📦 Prodotti", "📊 Dashboard"])
+menu = st.sidebar.radio("Menu", ["📦 Prodotti", "🛒 Ordini", "📊 Dashboard"])
 
 # =========================
 # PRODOTTI
@@ -28,7 +28,6 @@ if menu == "📦 Prodotti":
 
     st.header("📦 Prodotti")
 
-    # ---- FORM INSERIMENTO ----
     with st.form("form_product"):
         st.subheader("➕ Aggiungi prodotto")
 
@@ -55,7 +54,6 @@ if menu == "📦 Prodotti":
 
     st.divider()
 
-    # ---- LISTA PRODOTTI ----
     st.subheader("📋 Lista prodotti")
 
     data = supabase.table("products").select("*").execute().data
@@ -64,6 +62,131 @@ if menu == "📦 Prodotti":
         st.dataframe(data, use_container_width=True)
     else:
         st.info("Nessun prodotto trovato")
+
+
+# =========================
+# ORDINI (NUOVO MODULO)
+# =========================
+elif menu == "🛒 Ordini":
+
+    st.header("🛒 Ordini ERP")
+
+    # -------------------------
+    # CREA ORDINE
+    # -------------------------
+    st.subheader("➕ Crea ordine")
+
+    customer_name = st.text_input("Cliente")
+    marketplace = st.selectbox("Marketplace", ["Amazon", "Shopify", "eBay", "Altro"])
+    order_date = st.date_input("Data ordine")
+
+    if st.button("Crea ordine"):
+
+        if customer_name:
+            supabase.table("orders").insert({
+                "customer_name": customer_name,
+                "marketplace": marketplace,
+                "order_date": str(order_date),
+                "status": "pending"
+            }).execute()
+
+            st.success("Ordine creato!")
+        else:
+            st.error("Inserisci cliente")
+
+    st.divider()
+
+    # -------------------------
+    # SELEZIONA ORDINE
+    # -------------------------
+    st.subheader("📌 Ordine attivo")
+
+    orders = supabase.table("orders").select("*").execute().data
+
+    if orders:
+
+        order_map = {
+            f"{o['customer_name']} - {o['marketplace']} - {o['order_date']}": o["id"]
+            for o in orders
+        }
+
+        selected = st.selectbox("Seleziona ordine", list(order_map.keys()))
+        order_id = order_map[selected]
+
+        st.divider()
+
+        # -------------------------
+        # AGGIUNGI PRODOTTI
+        # -------------------------
+        st.subheader("📦 Aggiungi prodotti all'ordine")
+
+        products = supabase.table("products").select("*").execute().data
+
+        if products:
+
+            product_map = {p["name"]: p["id"] for p in products}
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                product_name = st.selectbox("Prodotto", list(product_map.keys()))
+
+            with col2:
+                quantity = st.number_input("Quantità", min_value=1, value=1)
+
+            with col3:
+                sale_price = st.number_input("Prezzo vendita", min_value=0.0)
+
+            returned = st.checkbox("Reso")
+
+            if st.button("Aggiungi al ordine"):
+
+                supabase.table("order_items").insert({
+                    "order_id": order_id,
+                    "product_id": product_map[product_name],
+                    "quantity": quantity,
+                    "sale_price": sale_price,
+                    "returned": returned
+                }).execute()
+
+                st.success("Prodotto aggiunto!")
+
+        st.divider()
+
+        # -------------------------
+        # DETTAGLIO ORDINE
+        # -------------------------
+        st.subheader("📋 Dettaglio ordine")
+
+        items = supabase.table("order_items") \
+            .select("*") \
+            .eq("order_id", order_id) \
+            .execute().data
+
+        if items:
+
+            total = 0
+
+            for i in items:
+                subtotal = i["quantity"] * i["sale_price"]
+                total += subtotal
+
+                st.write(
+                    f"📦 Prodotto ID: {i['product_id']} | "
+                    f"Qta: {i['quantity']} | "
+                    f"Prezzo: {i['sale_price']} € | "
+                    f"Tot: {subtotal} € | "
+                    f"Reso: {i['returned']}"
+                )
+
+            st.success(f"💰 Totale ordine: {total} €")
+
+        else:
+            st.info("Nessun prodotto nell'ordine")
+
+    else:
+        st.info("Nessun ordine presente")
+
 
 # =========================
 # DASHBOARD
