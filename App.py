@@ -13,24 +13,32 @@ supabase = create_client(
 # APP CONFIG
 # =========================
 st.set_page_config(page_title="ERP Ecommerce", layout="wide")
-
 st.title("📊 ERP Ecommerce")
 
 # =========================
-# STOCK FUNCTION (ERP CORE)
+# STOCK ENGINE (ERP CORE)
 # =========================
 def get_stock(product_id):
 
     movements = supabase.table("stock_movements") \
-        .select("*") \
+        .select("type, quantity") \
         .eq("product_id", product_id) \
         .execute().data
 
-    stock_in = sum(m["quantity"] for m in movements if m["type"] == "in")
-    stock_out = sum(m["quantity"] for m in movements if m["type"] == "out")
-    stock_return = sum(m["quantity"] for m in movements if m["type"] == "return")
+    if not movements:
+        return 0
 
-    return stock_in - stock_out + stock_return
+    stock = 0
+
+    for m in movements:
+        if m["type"] == "in":
+            stock += m["quantity"]
+        elif m["type"] == "out":
+            stock -= m["quantity"]
+        elif m["type"] == "return":
+            stock += m["quantity"]
+
+    return stock
 
 
 # =========================
@@ -38,15 +46,20 @@ def get_stock(product_id):
 # =========================
 menu = st.sidebar.radio("Menu", ["📦 Prodotti", "🛒 Ordini", "📊 Dashboard"])
 
+
 # =========================
-# PRODOTTI
+# 📦 PRODOTTI
 # =========================
 if menu == "📦 Prodotti":
 
     st.header("📦 Prodotti")
 
-    with st.form("form_product"):
-        st.subheader("➕ Aggiungi prodotto")
+    # -------------------------
+    # CREATE PRODUCT
+    # -------------------------
+    with st.form("product_form"):
+
+        st.subheader("➕ Nuovo prodotto")
 
         name = st.text_input("Nome prodotto")
         sku = st.text_input("SKU")
@@ -65,7 +78,7 @@ if menu == "📦 Prodotti":
                 "cost": cost
             }).execute().data[0]
 
-            # stock iniziale come movimento "in"
+            # stock iniziale come movimento
             supabase.table("stock_movements").insert({
                 "product_id": product["id"],
                 "type": "in",
@@ -73,38 +86,44 @@ if menu == "📦 Prodotti":
                 "reference": "initial_stock"
             }).execute()
 
-            st.success("Prodotto inserito!")
+            st.success("Prodotto creato!")
             st.rerun()
 
     st.divider()
 
+    # -------------------------
+    # PRODUCT LIST
+    # -------------------------
     st.subheader("📋 Lista prodotti")
 
     products = supabase.table("products").select("*").execute().data
 
     if products:
+
         for p in products:
 
             stock = get_stock(p["id"])
 
             st.write(
-                f"📦 {p['name']} | "
+                f"📦 **{p['name']}** | "
+                f"SKU: {p['sku']} | "
                 f"Stock: {stock} | "
-                f"Costo: {p['cost']} €"
+                f"Costo: {p['cost']}€"
             )
+
     else:
         st.info("Nessun prodotto")
 
 
 # =========================
-# ORDINI
+# 🛒 ORDINI
 # =========================
 elif menu == "🛒 Ordini":
 
-    st.header("🛒 Ordini ERP")
+    st.header("🛒 Ordini")
 
     # -------------------------
-    # CLIENTI
+    # CUSTOMERS
     # -------------------------
     customers = supabase.table("customers").select("*").execute().data
 
@@ -115,18 +134,18 @@ elif menu == "🛒 Ordini":
     customer_map = {c["name"]: c["id"] for c in customers}
 
     # -------------------------
-    # CREA ORDINE
+    # CREATE ORDER
     # -------------------------
-    st.subheader("➕ Crea ordine")
+    st.subheader("➕ Nuovo ordine")
 
-    selected_customer = st.selectbox("Cliente", list(customer_map.keys()))
+    customer = st.selectbox("Cliente", list(customer_map.keys()))
     marketplace = st.selectbox("Marketplace", ["Amazon", "Shopify", "eBay", "Altro"])
     order_date = st.date_input("Data ordine")
 
     if st.button("Crea ordine"):
 
         supabase.table("orders").insert({
-            "customer_id": customer_map[selected_customer],
+            "customer_id": customer_map[customer],
             "marketplace": marketplace,
             "order_date": str(order_date),
             "status": "pending"
@@ -137,7 +156,7 @@ elif menu == "🛒 Ordini":
     st.divider()
 
     # -------------------------
-    # ORDINI
+    # ORDERS LIST
     # -------------------------
     orders = supabase.table("orders").select("*").execute().data
     products = supabase.table("products").select("*").execute().data
@@ -157,7 +176,7 @@ elif menu == "🛒 Ordini":
     st.divider()
 
     # -------------------------
-    # AGGIUNGI PRODOTTI
+    # ADD PRODUCTS TO ORDER
     # -------------------------
     st.subheader("📦 Aggiungi prodotti")
 
@@ -176,11 +195,11 @@ elif menu == "🛒 Ordini":
 
     returned = st.checkbox("Reso")
 
-    if st.button("Aggiungi prodotto"):
+    if st.button("Aggiungi"):
 
         product_id = product_map[product_name]
 
-        # salva ordine item
+        # salva item
         supabase.table("order_items").insert({
             "order_id": order_id,
             "product_id": product_id,
@@ -189,18 +208,15 @@ elif menu == "🛒 Ordini":
             "returned": returned
         }).execute()
 
-        # STOCK MOVEMENT
+        # stock movement
         if returned:
-
             supabase.table("stock_movements").insert({
                 "product_id": product_id,
                 "type": "return",
                 "quantity": quantity,
                 "reference": f"return:{order_id}"
             }).execute()
-
         else:
-
             supabase.table("stock_movements").insert({
                 "product_id": product_id,
                 "type": "out",
@@ -208,12 +224,13 @@ elif menu == "🛒 Ordini":
                 "reference": f"order:{order_id}"
             }).execute()
 
-        st.success("Aggiornato ordine e stock!")
+        st.success("Aggiornato!")
+
 
     st.divider()
 
     # -------------------------
-    # DETTAGLIO ORDINE
+    # ORDER DETAIL
     # -------------------------
     st.subheader("📊 Dettaglio ordine")
 
@@ -225,7 +242,9 @@ elif menu == "🛒 Ordini":
     total = 0
 
     if items:
+
         for i in items:
+
             subtotal = i["quantity"] * i["sale_price"]
             total += subtotal
 
@@ -237,18 +256,18 @@ elif menu == "🛒 Ordini":
                 f"Reso: {i['returned']}"
             )
 
-        st.success(f"💰 Totale ordine: {total} €")
+        st.success(f"💰 Totale: {total} €")
 
     else:
         st.info("Nessun prodotto")
 
 
 # =========================
-# DASHBOARD
+# 📊 DASHBOARD
 # =========================
 elif menu == "📊 Dashboard":
 
-    st.header("📊 Dashboard ERP")
+    st.header("📊 Dashboard")
 
     products = supabase.table("products").select("*").execute().data
     orders = supabase.table("orders").select("*").execute().data
@@ -261,4 +280,4 @@ elif menu == "📊 Dashboard":
     with col2:
         st.metric("🛒 Ordini", len(orders))
 
-    st.write("ERP base completo → prossimo step: PROFITTO REALE")
+    st.write("Prossimo step: profitto reale e KPI")
