@@ -21,13 +21,12 @@ st.title("📊 ERP Ecommerce")
 # =========================
 def get_stock(product_id):
 
-    movements = supabase.table("stock_movements") \
+    res = supabase.table("stock_movements") \
         .select("type, quantity") \
         .eq("product_id", product_id) \
-        .execute().data
+        .execute()
 
-    if not movements:
-        return 0
+    movements = res.data or []
 
     stock = 0
 
@@ -52,14 +51,14 @@ menu = st.sidebar.radio(
 
 
 # =========================
-# 📦 PRODOTTI (UI SEPARATA)
+# 📦 PRODOTTI
 # =========================
 if menu == "📦 Prodotti":
 
     st.header("📦 Prodotti")
 
     # =========================
-    # FORM CREAZIONE
+    # CREATE PRODUCT
     # =========================
     with st.form("product_form"):
 
@@ -76,17 +75,19 @@ if menu == "📦 Prodotti":
 
         if submit and name and sku:
 
-            product = supabase.table("products").insert({
+            product_res = supabase.table("products").insert({
                 "name": name,
                 "sku": sku,
                 "supplier": supplier,
                 "cost": cost,
                 "product_type": product_type
-            }).execute().data[0]
+            }).execute()
 
-            if product_type == "stock":
+            product_data = product_res.data or []
+
+            if product_data and product_type == "stock":
                 supabase.table("stock_movements").insert({
-                    "product_id": product["id"],
+                    "product_id": product_data[0]["id"],
                     "type": "in",
                     "quantity": stock_in,
                     "reference": "initial_stock"
@@ -98,13 +99,13 @@ if menu == "📦 Prodotti":
     st.divider()
 
     # =========================
-    # TABS UI (NUOVO)
+    # TABS UI
     # =========================
     tab1, tab2 = st.tabs(["📦 Magazzino", "🚚 Dropshipping"])
 
 
     # =========================
-    # 📦 MAGAZZINO
+    # MAGAZZINO
     # =========================
     with tab1:
 
@@ -112,10 +113,12 @@ if menu == "📦 Prodotti":
 
         search = st.text_input("🔎 Cerca magazzino")
 
-        products = supabase.table("products") \
+        res = supabase.table("products") \
             .select("*") \
             .eq("product_type", "stock") \
-            .execute().data
+            .execute()
+
+        products = res.data or []
 
         rows = []
 
@@ -124,22 +127,22 @@ if menu == "📦 Prodotti":
             stock = get_stock(p["id"])
 
             if search:
-                if search.lower() not in p["name"].lower() and search.lower() not in (p["sku"] or "").lower():
+                if search.lower() not in (p.get("name","").lower()) and search.lower() not in (p.get("sku","").lower()):
                     continue
 
             rows.append({
-                "SKU": p["sku"],
-                "Nome": p["name"],
-                "Fornitore": p["supplier"],
+                "SKU": p.get("sku"),
+                "Nome": p.get("name"),
+                "Fornitore": p.get("supplier"),
                 "Stock": stock,
-                "Costo": p["cost"]
+                "Costo": p.get("cost")
             })
 
         st.dataframe(rows, use_container_width=True, height=500)
 
 
     # =========================
-    # 🚚 DROPSHIPPING
+    # DROPSHIPPING
     # =========================
     with tab2:
 
@@ -147,23 +150,25 @@ if menu == "📦 Prodotti":
 
         search_ds = st.text_input("🔎 Cerca dropshipping")
 
-        products = supabase.table("products") \
+        res = supabase.table("products") \
             .select("*") \
             .eq("product_type", "dropshipping") \
-            .execute().data
+            .execute()
+
+        products = res.data or []
 
         rows = []
 
         for p in products:
 
             if search_ds:
-                if search_ds.lower() not in p["name"].lower() and search_ds.lower() not in (p["sku"] or "").lower():
+                if search_ds.lower() not in (p.get("name","").lower()) and search_ds.lower() not in (p.get("sku","").lower()):
                     continue
 
             rows.append({
-                "SKU": p["sku"],
-                "Nome": p["name"],
-                "Costo": p["cost"]
+                "SKU": p.get("sku"),
+                "Nome": p.get("name"),
+                "Costo": p.get("cost")
             })
 
         st.dataframe(rows, use_container_width=True, height=500)
@@ -176,15 +181,13 @@ elif menu == "🛒 Ordini":
 
     st.header("🛒 Ordini")
 
-    customers = supabase.table("customers").select("*").execute().data
+    customers = supabase.table("customers").select("*").execute().data or []
 
     if not customers:
         st.warning("Nessun cliente")
         st.stop()
 
     customer_map = {c["name"]: c["id"] for c in customers}
-
-    st.subheader("➕ Nuovo ordine")
 
     customer = st.selectbox("Cliente", list(customer_map.keys()))
     marketplace = st.selectbox("Marketplace", ["Amazon", "Shopify", "eBay", "Altro"])
@@ -203,8 +206,8 @@ elif menu == "🛒 Ordini":
 
     st.divider()
 
-    orders = supabase.table("orders").select("*").execute().data
-    products = supabase.table("products").select("*").execute().data
+    orders = supabase.table("orders").select("*").execute().data or []
+    products = supabase.table("products").select("*").execute().data or []
 
     order_map = {
         f"{o['id']} | {o['marketplace']} | {o['order_date']}": o["id"]
@@ -218,7 +221,7 @@ elif menu == "🛒 Ordini":
 
     st.subheader("📦 Aggiungi prodotti")
 
-    sku_map = {p["sku"]: p for p in products}
+    sku_map = {p["sku"]: p for p in products if p.get("sku")}
 
     selected_sku = st.selectbox("SKU prodotto", list(sku_map.keys()))
 
@@ -245,48 +248,16 @@ elif menu == "🛒 Ordini":
 
         if product["product_type"] == "stock":
 
-            if returned:
-                supabase.table("stock_movements").insert({
-                    "product_id": product_id,
-                    "type": "return",
-                    "quantity": quantity,
-                    "reference": f"return:{order_id}"
-                }).execute()
-            else:
-                supabase.table("stock_movements").insert({
-                    "product_id": product_id,
-                    "type": "out",
-                    "quantity": quantity,
-                    "reference": f"order:{order_id}"
-                }).execute()
+            movement_type = "return" if returned else "out"
+
+            supabase.table("stock_movements").insert({
+                "product_id": product_id,
+                "type": movement_type,
+                "quantity": quantity,
+                "reference": f"{movement_type}:{order_id}"
+            }).execute()
 
         st.success(f"Aggiornato! Profitto dropshipping: {profit:.2f} €")
-
-    st.divider()
-
-    st.subheader("📊 Dettaglio ordine")
-
-    items = supabase.table("order_items") \
-        .select("*") \
-        .eq("order_id", order_id) \
-        .execute().data
-
-    total = 0
-
-    for i in items:
-
-        subtotal = i["quantity"] * i["sale_price"]
-        total += subtotal
-
-        st.write(
-            f"📦 {i['product_id']} | "
-            f"Qta: {i['quantity']} | "
-            f"€{i['sale_price']} | "
-            f"Tot: {subtotal} | "
-            f"Reso: {i['returned']}"
-        )
-
-    st.success(f"💰 Totale ordine: {total} €")
 
 
 # =========================
@@ -296,9 +267,9 @@ elif menu == "📥 Carico magazzino":
 
     st.header("📥 Carico magazzino")
 
-    products = supabase.table("products").select("*").execute().data
+    products = supabase.table("products").select("*").execute().data or []
 
-    sku_map = {p["sku"]: p for p in products}
+    sku_map = {p["sku"]: p for p in products if p.get("sku")}
 
     selected_sku = st.selectbox("SKU prodotto", list(sku_map.keys()))
 
@@ -330,8 +301,8 @@ elif menu == "📊 Dashboard":
 
     st.header("📊 Dashboard ERP")
 
-    products = supabase.table("products").select("*").execute().data
-    orders = supabase.table("orders").select("*").execute().data
+    products = supabase.table("products").select("*").execute().data or []
+    orders = supabase.table("orders").select("*").execute().data or []
 
     col1, col2 = st.columns(2)
 
@@ -341,4 +312,4 @@ elif menu == "📊 Dashboard":
     with col2:
         st.metric("🛒 Ordini", len(orders))
 
-    st.write("ERP pronto: stock + dropshipping separati")
+    st.write("ERP stabile: stock + dropshipping separati + safe Supabase calls")
