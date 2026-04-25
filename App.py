@@ -3,10 +3,10 @@ import pandas as pd
 from supabase import create_client
 
 # =========================
-# 🔐 CONNESSIONE SUPABASE
+# 🔐 SUPABASE (SECRETS)
 # =========================
-SUPABASE_URL = "https://xxxx.supabase.co"
-SUPABASE_KEY = "LA_TUA_ANON_KEY"
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -49,7 +49,7 @@ else:
     st.warning("Nessun prodotto trovato")
 
 # =========================
-# 🧱 STOCK MOVEMENTS (solo visualizzazione base)
+# 📦 STOCK MOVEMENTS
 # =========================
 st.subheader("📦 Movimenti Magazzino")
 
@@ -57,6 +57,7 @@ stock = supabase.table("stock_movements").select("*").execute()
 
 if stock.data:
     df_stock = pd.DataFrame(stock.data)
+
     st.dataframe(df_stock)
 else:
     st.warning("Nessun movimento stock trovato")
