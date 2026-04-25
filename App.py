@@ -81,7 +81,6 @@ if menu == "📦 Prodotti":
                 "product_type": product_type
             }).execute().data[0]
 
-            # SOLO STOCK SE TIPO STOCK
             if product_type == "stock":
                 supabase.table("stock_movements").insert({
                     "product_id": product["id"],
@@ -186,9 +185,8 @@ elif menu == "🛒 Ordini":
     st.subheader("📦 Aggiungi prodotti")
 
     sku_map = {p["sku"]: p for p in products}
-    sku_list = list(sku_map.keys())
 
-    selected_sku = st.selectbox("SKU prodotto", sku_list)
+    selected_sku = st.selectbox("SKU prodotto", list(sku_map.keys()))
 
     quantity = st.number_input("Quantità", min_value=1, value=1)
     sale_price = st.number_input("Prezzo vendita", min_value=0.0)
@@ -199,7 +197,6 @@ elif menu == "🛒 Ordini":
         product = sku_map[selected_sku]
         product_id = product["id"]
 
-        # CALCOLO PROFITTO DROPSHIPPING
         profit = 0
         if product["product_type"] == "dropshipping":
             profit = (sale_price - product["cost"]) * quantity
@@ -212,7 +209,6 @@ elif menu == "🛒 Ordini":
             "returned": returned
         }).execute()
 
-        # STOCK LOGIC
         if product["product_type"] == "stock":
 
             if returned:
@@ -269,9 +265,8 @@ elif menu == "📥 Carico magazzino":
     products = supabase.table("products").select("*").execute().data
 
     sku_map = {p["sku"]: p for p in products}
-    sku_list = list(sku_map.keys())
 
-    selected_sku = st.selectbox("SKU prodotto", sku_list)
+    selected_sku = st.selectbox("SKU prodotto", list(sku_map.keys()))
 
     quantity = st.number_input("Quantità ricevuta", min_value=1, value=1)
     note = st.text_input("Nota")
