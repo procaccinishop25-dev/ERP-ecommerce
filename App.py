@@ -5,7 +5,10 @@ import uuid
 
 st.title("📊 ERP Ecommerce")
 
-# Connessione Supabase
+# ----------------------------
+# 🔌 CONNESSIONE SUPABASE
+# ----------------------------
+
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 
@@ -30,31 +33,53 @@ if st.button("Inserisci ordine"):
             "total_amount": 100
         }
 
-        # 1. inserisci ordine
+        # 1. INSERISCI ORDINE
         supabase.table("orders").insert(data).execute()
 
-        # 2. SIMULAZIONE order_items (per test)
+        # 2. SIMULAZIONE ORDER ITEMS
         items = [
             {"sku": "SKU1", "quantity": 1}
         ]
 
-        # 3. CREA MOVIMENTI MAGAZZINO
+        # 3. MOVIMENTI + INVENTORY UPDATE
         for item in items:
+            sku = item["sku"]
+            qty = item["quantity"]
+
+            # MOVIMENTO MAGAZZINO (STORICO)
             supabase.table("inventory_movements").insert({
-                "sku": item["sku"],
+                "sku": sku,
                 "type": "OUT",
-                "quantity": item["quantity"],
+                "quantity": qty,
                 "reference": order_id,
                 "reason": "sale"
             }).execute()
 
-        st.success("✅ Ordine + movimenti magazzino creati!")
+            # INVENTORY (STOCK REALE)
+            inv = supabase.table("inventory").select("*").eq("sku", sku).execute().data
+
+            if inv:
+                current_stock = inv[0]["stock"]
+                new_stock = current_stock - qty
+
+                supabase.table("inventory").update({
+                    "stock": new_stock,
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("sku", sku).execute()
+
+            else:
+                supabase.table("inventory").insert({
+                    "sku": sku,
+                    "stock": -qty
+                }).execute()
+
+        st.success("✅ Ordine + magazzino aggiornati!")
 
     except Exception as e:
         st.error(f"❌ Errore: {e}")
 
 # ----------------------------
-# 📋 ORDINI
+# 📦 ORDINI
 # ----------------------------
 
 st.subheader("📦 Ordini salvati")
@@ -69,10 +94,10 @@ try:
         st.info("Nessun ordine presente")
 
 except Exception as e:
-    st.error(f"Errore caricamento ordini: {e}")
+    st.error(f"Errore ordini: {e}")
 
 # ----------------------------
-# 📦 MOVIMENTI MAGAZZINO
+# 📜 MOVIMENTI MAGAZZINO
 # ----------------------------
 
 st.subheader("📦 Movimenti magazzino")
@@ -87,9 +112,31 @@ try:
         st.info("Nessun movimento presente")
 
 except Exception as e:
-    st.error(f"Errore caricamento magazzino: {e}")
+    st.error(f"Errore movimenti: {e}")
 
-st.subheader("📊 Stock reale (calcolato)")
+# ----------------------------
+# 📊 INVENTORY (STOCK REALE DB)
+# ----------------------------
+
+st.subheader("📦 Inventory (stock reale)")
+
+try:
+    response = supabase.table("inventory").select("*").execute()
+    inventory = response.data
+
+    if inventory:
+        st.dataframe(inventory)
+    else:
+        st.info("Nessun inventory presente")
+
+except Exception as e:
+    st.error(f"Errore inventory: {e}")
+
+# ----------------------------
+# 📊 STOCK CALCOLATO (BACKUP LOGICO)
+# ----------------------------
+
+st.subheader("📊 Stock calcolato (da movimenti)")
 
 try:
     response = supabase.table("inventory_movements").select("*").execute()
@@ -110,7 +157,6 @@ try:
             stock[sku] -= qty
 
     if stock:
-        st.write("Stock attuale per SKU:")
         st.dataframe([
             {"sku": k, "stock": v} for k, v in stock.items()
         ])
