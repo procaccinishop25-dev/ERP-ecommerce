@@ -15,20 +15,21 @@ supabase = create_client(
 st.set_page_config(page_title="ERP Ecommerce", layout="wide")
 st.title("📊 ERP Ecommerce")
 
-
 # =========================
 # STOCK ENGINE
 # =========================
 def get_stock(product_id):
 
-    res = supabase.table("stock_movements") \
+    movements = supabase.table("stock_movements") \
         .select("type, quantity") \
         .eq("product_id", product_id) \
-        .execute()
+        .execute().data
 
-    movements = res.data or []
+    if not movements:
+        return 0
 
     stock = 0
+
     for m in movements:
         if m["type"] == "in":
             stock += m["quantity"]
@@ -39,29 +40,58 @@ def get_stock(product_id):
 
     return stock
 
-
 # =========================
 # MENU
 # =========================
 menu = st.sidebar.radio(
     "Menu",
-    ["📦 Magazzino", "🚚 Dropshipping", "🛒 Ordini", "📥 Carico magazzino", "📊 Dashboard"]
+    ["📦 Prodotti", "🛒 Ordini", "📥 Carico magazzino", "📊 Dashboard"]
 )
 
-
 # =========================
-# 📦 MAGAZZINO (STOCK)
+# 📦 PRODOTTI
 # =========================
-if menu == "📦 Magazzino":
+if menu == "📦 Prodotti":
 
-    st.header("📦 Magazzino")
+    st.header("📦 Prodotti")
 
-    search = st.text_input("🔎 Cerca prodotto")
+    with st.form("product_form"):
 
-    products = supabase.table("products") \
-        .select("*") \
-        .eq("product_type", "stock") \
-        .execute().data or []
+        st.subheader("➕ Nuovo prodotto")
+
+        name = st.text_input("Nome prodotto")
+        sku = st.text_input("SKU (UNIVOCO)")
+        supplier = st.text_input("Fornitore")
+        cost = st.number_input("Costo", min_value=0.0, step=0.1)
+        stock_in = st.number_input("Stock iniziale", min_value=0, step=1)
+
+        submit = st.form_submit_button("Salva")
+
+        if submit and name and sku:
+
+            product = supabase.table("products").insert({
+                "name": name,
+                "sku": sku,
+                "supplier": supplier,
+                "cost": cost
+            }).execute().data[0]
+
+            supabase.table("stock_movements").insert({
+                "product_id": product["id"],
+                "type": "in",
+                "quantity": stock_in,
+                "reference": "initial_stock"
+            }).execute()
+
+            st.success("Prodotto creato!")
+            st.rerun()
+
+    st.divider()
+
+    search = st.text_input("🔎 Cerca prodotto (nome o SKU)")
+    stock_filter = st.selectbox("Filtro stock", ["Tutti", "OK", "LOW", "OUT"])
+
+    products = supabase.table("products").select("*").execute().data
 
     rows = []
 
@@ -69,53 +99,31 @@ if menu == "📦 Magazzino":
 
         stock = get_stock(p["id"])
 
+        if stock <= 0:
+            status = "OUT"
+        elif stock < 5:
+            status = "LOW"
+        else:
+            status = "OK"
+
         if search:
-            if search.lower() not in (p["name"] or "").lower() and search.lower() not in (p["sku"] or "").lower():
+            if search.lower() not in p["name"].lower() and search.lower() not in (p["sku"] or "").lower():
                 continue
 
+        if stock_filter != "Tutti" and status != stock_filter:
+            continue
+
         rows.append({
-            "SKU": p["sku"],
             "Nome": p["name"],
+            "SKU": p["sku"],
             "Fornitore": p["supplier"],
             "Stock": stock,
+            "Stato": status,
             "Costo": p["cost"]
         })
 
-    st.subheader("📦 Prodotti in magazzino")
+    st.subheader(f"📋 Inventario ({len(rows)})")
     st.dataframe(rows, use_container_width=True, height=600)
-
-
-# =========================
-# 🚚 DROPSHIPPING
-# =========================
-elif menu == "🚚 Dropshipping":
-
-    st.header("🚚 Dropshipping")
-
-    search = st.text_input("🔎 Cerca prodotto dropshipping")
-
-    products = supabase.table("products") \
-        .select("*") \
-        .eq("product_type", "dropshipping") \
-        .execute().data or []
-
-    rows = []
-
-    for p in products:
-
-        if search:
-            if search.lower() not in (p["name"] or "").lower() and search.lower() not in (p["sku"] or "").lower():
-                continue
-
-        rows.append({
-            "SKU": p["sku"],
-            "Nome": p["name"],
-            "Costo": p["cost"]
-        })
-
-    st.subheader("🚚 Catalogo dropshipping")
-    st.dataframe(rows, use_container_width=True, height=600)
-
 
 # =========================
 # 🛒 ORDINI
@@ -124,13 +132,15 @@ elif menu == "🛒 Ordini":
 
     st.header("🛒 Ordini")
 
-    customers = supabase.table("customers").select("*").execute().data or []
+    customers = supabase.table("customers").select("*").execute().data
 
     if not customers:
         st.warning("Nessun cliente")
         st.stop()
 
     customer_map = {c["name"]: c["id"] for c in customers}
+
+    st.subheader("➕ Nuovo ordine")
 
     customer = st.selectbox("Cliente", list(customer_map.keys()))
     marketplace = st.selectbox("Marketplace", ["Amazon", "Shopify", "eBay", "Altro"])
@@ -149,8 +159,8 @@ elif menu == "🛒 Ordini":
 
     st.divider()
 
-    orders = supabase.table("orders").select("*").execute().data or []
-    products = supabase.table("products").select("*").execute().data or []
+    orders = supabase.table("orders").select("*").execute().data
+    products = supabase.table("products").select("*").execute().data
 
     order_map = {
         f"{o['id']} | {o['marketplace']} | {o['order_date']}": o["id"]
@@ -164,9 +174,10 @@ elif menu == "🛒 Ordini":
 
     st.subheader("📦 Aggiungi prodotti")
 
-    sku_map = {p["sku"]: p for p in products if p.get("sku")}
+    sku_map = {p["sku"]: p["id"] for p in products}
+    sku_list = list(sku_map.keys())
 
-    selected_sku = st.selectbox("SKU prodotto", list(sku_map.keys()))
+    selected_sku = st.selectbox("SKU prodotto", sku_list)
 
     quantity = st.number_input("Quantità", min_value=1, value=1)
     sale_price = st.number_input("Prezzo vendita", min_value=0.0)
@@ -174,10 +185,7 @@ elif menu == "🛒 Ordini":
 
     if st.button("Aggiungi"):
 
-        product = sku_map[selected_sku]
-        product_id = product["id"]
-
-        profit = (sale_price - product["cost"]) * quantity if product["product_type"] == "dropshipping" else 0
+        product_id = sku_map[selected_sku]
 
         supabase.table("order_items").insert({
             "order_id": order_id,
@@ -187,17 +195,48 @@ elif menu == "🛒 Ordini":
             "returned": returned
         }).execute()
 
-        if product["product_type"] == "stock":
-
+        if returned:
             supabase.table("stock_movements").insert({
                 "product_id": product_id,
-                "type": "return" if returned else "out",
+                "type": "return",
+                "quantity": quantity,
+                "reference": f"return:{order_id}"
+            }).execute()
+        else:
+            supabase.table("stock_movements").insert({
+                "product_id": product_id,
+                "type": "out",
                 "quantity": quantity,
                 "reference": f"order:{order_id}"
             }).execute()
 
-        st.success(f"Aggiornato! Profitto DS: {profit:.2f} €")
+        st.success("Aggiornato!")
 
+    st.divider()
+
+    st.subheader("📊 Dettaglio ordine")
+
+    items = supabase.table("order_items") \
+        .select("*") \
+        .eq("order_id", order_id) \
+        .execute().data
+
+    total = 0
+
+    for i in items:
+
+        subtotal = i["quantity"] * i["sale_price"]
+        total += subtotal
+
+        st.write(
+            f"📦 {i['product_id']} | "
+            f"Qta: {i['quantity']} | "
+            f"€{i['sale_price']} | "
+            f"Tot: {subtotal} | "
+            f"Reso: {i['returned']}"
+        )
+
+    st.success(f"💰 Totale: {total} €")
 
 # =========================
 # 📥 CARICO MAGAZZINO
@@ -206,32 +245,26 @@ elif menu == "📥 Carico magazzino":
 
     st.header("📥 Carico magazzino")
 
-    products = supabase.table("products").select("*").execute().data or []
+    products = supabase.table("products").select("*").execute().data
 
-    sku_map = {p["sku"]: p for p in products if p.get("sku")}
+    sku_map = {p["sku"]: p["id"] for p in products}
+    sku_list = list(sku_map.keys())
 
-    selected_sku = st.selectbox("SKU prodotto", list(sku_map.keys()))
+    selected_sku = st.selectbox("SKU prodotto", sku_list)
 
     quantity = st.number_input("Quantità ricevuta", min_value=1, value=1)
-    note = st.text_input("Nota")
+    note = st.text_input("Nota (fornitore / ordine)")
 
     if st.button("Registra carico"):
 
-        product = sku_map[selected_sku]
+        supabase.table("stock_movements").insert({
+            "product_id": sku_map[selected_sku],
+            "type": "in",
+            "quantity": quantity,
+            "reference": note or "replenishment"
+        }).execute()
 
-        if product["product_type"] == "stock":
-
-            supabase.table("stock_movements").insert({
-                "product_id": product["id"],
-                "type": "in",
-                "quantity": quantity,
-                "reference": note or "replenishment"
-            }).execute()
-
-            st.success("Carico registrato!")
-        else:
-            st.warning("Questo prodotto è dropshipping")
-
+        st.success(f"Carico registrato per SKU {selected_sku}")
 
 # =========================
 # 📊 DASHBOARD
@@ -240,8 +273,8 @@ elif menu == "📊 Dashboard":
 
     st.header("📊 Dashboard ERP")
 
-    products = supabase.table("products").select("*").execute().data or []
-    orders = supabase.table("orders").select("*").execute().data or []
+    products = supabase.table("products").select("*").execute().data
+    orders = supabase.table("orders").select("*").execute().data
 
     col1, col2 = st.columns(2)
 
@@ -251,4 +284,4 @@ elif menu == "📊 Dashboard":
     with col2:
         st.metric("🛒 Ordini", len(orders))
 
-    st.success("Sistema stabile: stock + dropshipping separati")
+    st.write("Sistema stabile → pronto per KPI e profitto reale")
