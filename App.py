@@ -6,6 +6,8 @@ KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(URL, KEY)
 
+st.title("Insert Product")
+
 product = {
     "sku": "TSHIRT-001",
     "title": "T-Shirt Black",
@@ -13,6 +15,7 @@ product = {
     "sell_price": 25
 }
 
-res = supabase.table("products").insert(product).execute()
-
-print(res)
+if st.button("Insert product"):
+    res = supabase.table("products").insert(product).execute()
+    st.success("Product inserted")
+    st.write(res)
