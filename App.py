@@ -50,8 +50,39 @@ st.subheader("📦 Movimento magazzino")
 magazzino = supabase.table("Movimento magazzino").select("*").execute()
 
 if magazzino.data:
-    df_mag = pd.DataFrame(magazzino.data)
+    df = pd.DataFrame(magazzino.data)
 
-    st.dataframe(df_mag)
+    # =========================
+    # 📊 STOCK PER PRODOTTO
+    # =========================
+    st.subheader("📊 Stock attuale per prodotto")
+
+    stock_df = df.groupby("product_sku").apply(
+        lambda x: 
+        x[x["type"]=="IN"]["quantity"].sum()
+        - x[x["type"]=="OUT"]["quantity"].sum()
+        + x[x["type"]=="RETURN"]["quantity"].sum()
+        - x[x["type"]=="LOSS"]["quantity"].sum()
+    ).reset_index(name="stock")
+
+    def status(stock):
+        if stock <= 0:
+            return "🔴 STOCK OUT"
+        elif stock < 10:
+            return "🟡 BASSO"
+        else:
+            return "🟢 OK"
+
+    stock_df["status"] = stock_df["stock"].apply(status)
+
+    st.dataframe(stock_df)
+
+    # =========================
+    # 📋 MOVIMENTI GREZZI
+    # =========================
+    st.subheader("📋 Storico movimenti")
+
+    st.dataframe(df)
+
 else:
-    st.warning("Nessun movimento trovato")
+    st.warning("Nessun movimento magazzino trovato")
