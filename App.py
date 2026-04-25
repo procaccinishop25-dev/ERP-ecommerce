@@ -10,13 +10,14 @@ supabase = create_client(
 )
 
 # =========================
-# APP CONFIG
+# APP
 # =========================
 st.set_page_config(page_title="ERP Ecommerce", layout="wide")
 st.title("📊 ERP Ecommerce")
 
+
 # =========================
-# STOCK ENGINE (ERP CORE)
+# STOCK ENGINE
 # =========================
 def get_stock(product_id):
 
@@ -44,19 +45,19 @@ def get_stock(product_id):
 # =========================
 # MENU
 # =========================
-menu = st.sidebar.radio("Menu", ["📦 Prodotti", "🛒 Ordini", "📊 Dashboard"])
+menu = st.sidebar.radio(
+    "Menu",
+    ["📦 Prodotti", "🛒 Ordini", "📥 Carico magazzino", "📊 Dashboard"]
+)
 
 
 # =========================
-# 📦 PRODOTTI (SCALABILE UI)
+# 📦 PRODOTTI
 # =========================
 if menu == "📦 Prodotti":
 
     st.header("📦 Prodotti")
 
-    # -------------------------
-    # CREATE PRODUCT
-    # -------------------------
     with st.form("product_form"):
 
         st.subheader("➕ Nuovo prodotto")
@@ -90,60 +91,38 @@ if menu == "📦 Prodotti":
 
     st.divider()
 
-    # -------------------------
-    # FILTERS
-    # -------------------------
-    col1, col2 = st.columns(2)
+    st.subheader("📋 Inventario")
 
-    with col1:
-        search = st.text_input("🔎 Cerca prodotto")
-
-    with col2:
-        stock_filter = st.selectbox("Filtro stock", ["Tutti", "OK", "LOW", "OUT"])
-
-    # -------------------------
-    # LOAD PRODUCTS
-    # -------------------------
     products = supabase.table("products").select("*").execute().data
 
-    if not products:
+    if products:
+
+        for p in products:
+
+            stock = get_stock(p["id"])
+
+            if stock <= 0:
+                status = "🔴 OUT"
+            elif stock < 5:
+                status = "🟠 LOW"
+            else:
+                status = "🟢 OK"
+
+            col1, col2, col3 = st.columns([3, 2, 2])
+
+            with col1:
+                st.markdown(f"### 📦 {p['name']}")
+
+            with col2:
+                st.markdown(f"**Stock:** {stock} {status}")
+
+            with col3:
+                st.markdown(f"€{p['cost']}")
+
+            st.divider()
+
+    else:
         st.info("Nessun prodotto")
-        st.stop()
-
-    rows = []
-
-    for p in products:
-
-        stock = get_stock(p["id"])
-
-        if stock <= 0:
-            status = "OUT"
-        elif stock < 5:
-            status = "LOW"
-        else:
-            status = "OK"
-
-        # search filter
-        if search:
-            if search.lower() not in p["name"].lower() and search.lower() not in (p["sku"] or "").lower():
-                continue
-
-        # stock filter
-        if stock_filter != "Tutti" and status != stock_filter:
-            continue
-
-        rows.append({
-            "Nome": p["name"],
-            "SKU": p["sku"],
-            "Fornitore": p["supplier"],
-            "Stock": stock,
-            "Stato": status,
-            "Costo": p["cost"]
-        })
-
-    st.subheader(f"📋 Prodotti ({len(rows)})")
-
-    st.dataframe(rows, use_container_width=True, height=600)
 
 
 # =========================
@@ -161,9 +140,6 @@ elif menu == "🛒 Ordini":
 
     customer_map = {c["name"]: c["id"] for c in customers}
 
-    # -------------------------
-    # CREATE ORDER
-    # -------------------------
     st.subheader("➕ Nuovo ordine")
 
     customer = st.selectbox("Cliente", list(customer_map.keys()))
@@ -183,9 +159,6 @@ elif menu == "🛒 Ordini":
 
     st.divider()
 
-    # -------------------------
-    # ORDERS
-    # -------------------------
     orders = supabase.table("orders").select("*").execute().data
     products = supabase.table("products").select("*").execute().data
 
@@ -203,9 +176,6 @@ elif menu == "🛒 Ordini":
 
     st.divider()
 
-    # -------------------------
-    # ADD ITEMS
-    # -------------------------
     st.subheader("📦 Aggiungi prodotti")
 
     product_map = {p["name"]: p["id"] for p in products}
@@ -252,39 +222,31 @@ elif menu == "🛒 Ordini":
 
         st.success("Aggiornato!")
 
-    st.divider()
 
-    # -------------------------
-    # ORDER DETAILS
-    # -------------------------
-    st.subheader("📊 Dettaglio ordine")
+# =========================
+# 📥 CARICO MAGAZZINO (NUOVO)
+# =========================
+elif menu == "📥 Carico magazzino":
 
-    items = supabase.table("order_items") \
-        .select("*") \
-        .eq("order_id", order_id) \
-        .execute().data
+    st.header("📥 Carico magazzino")
 
-    total = 0
+    products = supabase.table("products").select("*").execute().data
+    product_map = {p["name"]: p["id"] for p in products}
 
-    if items:
+    product_name = st.selectbox("Prodotto", list(product_map.keys()))
+    quantity = st.number_input("Quantità ricevuta", min_value=1, value=1)
+    note = st.text_input("Nota (es: ordine fornitore)")
 
-        for i in items:
+    if st.button("Registra carico"):
 
-            subtotal = i["quantity"] * i["sale_price"]
-            total += subtotal
+        supabase.table("stock_movements").insert({
+            "product_id": product_map[product_name],
+            "type": "in",
+            "quantity": quantity,
+            "reference": note or "replenishment"
+        }).execute()
 
-            st.write(
-                f"📦 {i['product_id']} | "
-                f"Qta: {i['quantity']} | "
-                f"€{i['sale_price']} | "
-                f"Tot: {subtotal} | "
-                f"Reso: {i['returned']}"
-            )
-
-        st.success(f"💰 Totale ordine: {total} €")
-
-    else:
-        st.info("Nessun prodotto")
+        st.success("Stock aggiornato!")
 
 
 # =========================
@@ -305,4 +267,4 @@ elif menu == "📊 Dashboard":
     with col2:
         st.metric("🛒 Ordini", len(orders))
 
-    st.write("Prossimo step: profitto reale, KPI, margini")
+    st.write("Prossimo step: profitto reale e KPI avanzati")
