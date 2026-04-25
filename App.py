@@ -52,12 +52,15 @@ menu = st.sidebar.radio(
 
 
 # =========================
-# 📦 PRODOTTI
+# 📦 PRODOTTI (UI SEPARATA)
 # =========================
 if menu == "📦 Prodotti":
 
     st.header("📦 Prodotti")
 
+    # =========================
+    # FORM CREAZIONE
+    # =========================
     with st.form("product_form"):
 
         st.subheader("➕ Nuovo prodotto")
@@ -94,45 +97,76 @@ if menu == "📦 Prodotti":
 
     st.divider()
 
-    search = st.text_input("🔎 Cerca prodotto")
-    stock_filter = st.selectbox("Filtro stock", ["Tutti", "OK", "LOW", "OUT"])
+    # =========================
+    # TABS UI (NUOVO)
+    # =========================
+    tab1, tab2 = st.tabs(["📦 Magazzino", "🚚 Dropshipping"])
 
-    products = supabase.table("products").select("*").execute().data
 
-    rows = []
+    # =========================
+    # 📦 MAGAZZINO
+    # =========================
+    with tab1:
 
-    for p in products:
+        st.subheader("📦 Prodotti in magazzino")
 
-        stock = get_stock(p["id"]) if p["product_type"] == "stock" else "—"
+        search = st.text_input("🔎 Cerca magazzino")
 
-        status = "N/A"
-        if p["product_type"] == "stock":
-            if stock <= 0:
-                status = "OUT"
-            elif stock < 5:
-                status = "LOW"
-            else:
-                status = "OK"
+        products = supabase.table("products") \
+            .select("*") \
+            .eq("product_type", "stock") \
+            .execute().data
 
-        if search:
-            if search.lower() not in p["name"].lower() and search.lower() not in (p["sku"] or "").lower():
-                continue
+        rows = []
 
-        if stock_filter != "Tutti" and p["product_type"] == "stock":
-            if status != stock_filter:
-                continue
+        for p in products:
 
-        rows.append({
-            "Nome": p["name"],
-            "SKU": p["sku"],
-            "Tipo": p["product_type"],
-            "Fornitore": p["supplier"],
-            "Stock": stock,
-            "Costo": p["cost"]
-        })
+            stock = get_stock(p["id"])
 
-    st.subheader(f"📋 Prodotti ({len(rows)})")
-    st.dataframe(rows, use_container_width=True, height=600)
+            if search:
+                if search.lower() not in p["name"].lower() and search.lower() not in (p["sku"] or "").lower():
+                    continue
+
+            rows.append({
+                "SKU": p["sku"],
+                "Nome": p["name"],
+                "Fornitore": p["supplier"],
+                "Stock": stock,
+                "Costo": p["cost"]
+            })
+
+        st.dataframe(rows, use_container_width=True, height=500)
+
+
+    # =========================
+    # 🚚 DROPSHIPPING
+    # =========================
+    with tab2:
+
+        st.subheader("🚚 Catalogo Dropshipping")
+
+        search_ds = st.text_input("🔎 Cerca dropshipping")
+
+        products = supabase.table("products") \
+            .select("*") \
+            .eq("product_type", "dropshipping") \
+            .execute().data
+
+        rows = []
+
+        for p in products:
+
+            if search_ds:
+                if search_ds.lower() not in p["name"].lower() and search_ds.lower() not in (p["sku"] or "").lower():
+                    continue
+
+            rows.append({
+                "SKU": p["sku"],
+                "Nome": p["name"],
+                "Costo": p["cost"]
+            })
+
+        st.dataframe(rows, use_container_width=True, height=500)
 
 
 # =========================
