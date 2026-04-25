@@ -1,6 +1,6 @@
+import streamlit as st
 from supabase import create_client
 
-# 🔴 QUI METTI I DATI DA SUPABASE
 URL = st.secrets["SUPABASE_URL"]
 KEY = st.secrets["SUPABASE_KEY"]
 
@@ -18,5 +18,5 @@ order = {
 
 response = supabase.table("orders").insert(order).execute()
 
-print("DONE")
-print(response)
+st.write("DONE")
+st.write(response)
