@@ -3,7 +3,7 @@ import pandas as pd
 from supabase import create_client
 
 # =========================
-# 🔐 CONFIG SUPABASE (STREAMLIT SECRETS)
+# 🔐 CONNESSIONE SUPABASE
 # =========================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
@@ -13,72 +13,54 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # =========================
 # 🧠 DASHBOARD
 # =========================
-st.set_page_config(page_title="ERP Ecommerce Dashboard", layout="wide")
 st.title("📊 ERP Ecommerce Dashboard")
-
-
-# =========================
-# 📦 UTILITY FUNCTIONS
-# =========================
-def fetch_table(table_name: str):
-    """Recupera dati da Supabase e li converte in DataFrame."""
-    try:
-        response = supabase.table(table_name).select("*").execute()
-        return pd.DataFrame(response.data or [])
-    except Exception as e:
-        st.error(f"Errore nel caricamento tabella {table_name}: {e}")
-        return pd.DataFrame()
-
-
-def show_dataframe(df: pd.DataFrame, empty_msg: str):
-    """Mostra dataframe o warning se vuoto."""
-    if df.empty:
-        st.warning(empty_msg)
-        return False
-    st.dataframe(df, use_container_width=True)
-    return True
-
 
 # =========================
 # 📦 ORDERS
 # =========================
 st.subheader("📦 Ordini")
 
-df_orders = fetch_table("orders")
+orders = supabase.table("orders").select("*").execute()
 
-if not df_orders.empty:
-    col1, col2 = st.columns(2)
+if orders.data:
+    df_orders = pd.DataFrame(orders.data)
 
-    col1.metric("Totale ordini", len(df_orders))
-    col2.metric(
-        "Fatturato totale",
-        f"€ {df_orders.get('revenue', pd.Series([0])).sum():,.2f}"
-    )
+    st.metric("Totale ordini", len(df_orders))
 
-    show_dataframe(df_orders, "Nessun ordine trovato")
+    # sicurezza se la colonna non esiste o è vuota
+    revenue = df_orders["revenue"].sum() if "revenue" in df_orders.columns else 0
+    st.metric("Fatturato totale", f"€ {revenue:,.2f}")
+
+    st.dataframe(df_orders, use_container_width=True)
 else:
     st.warning("Nessun ordine trovato")
-
 
 # =========================
 # 📦 PRODUCTS
 # =========================
 st.subheader("📦 Prodotti")
 
-df_products = fetch_table("products")
+products = supabase.table("products").select("*").execute()
 
-if not df_products.empty:
+if products.data:
+    df_products = pd.DataFrame(products.data)
+
     st.metric("Totale prodotti", len(df_products))
-    show_dataframe(df_products, "Nessun prodotto trovato")
+
+    st.dataframe(df_products, use_container_width=True)
 else:
     st.warning("Nessun prodotto trovato")
-
 
 # =========================
 # 🧱 STOCK MOVEMENTS
 # =========================
 st.subheader("📦 Movimenti Magazzino")
 
-df_stock = fetch_table("stock_movements")
+stock = supabase.table("stock_movements").select("*").execute()
 
-show_dataframe(df_stock, "Nessun movimento stock trovato")
+if stock.data:
+    df_stock = pd.DataFrame(stock.data)
+
+    st.dataframe(df_stock, use_container_width=True)
+else:
+    st.warning("Nessun movimento stock trovato")
