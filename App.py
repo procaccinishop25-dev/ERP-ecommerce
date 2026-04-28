@@ -3,10 +3,10 @@ import pandas as pd
 from supabase import create_client
 
 # =========================
-# 🔐 CONFIG SUPABASE
+# 🔐 CONFIG SUPABASE (STREAMLIT SECRETS)
 # =========================
-SUPABASE_URL = "https://xxxx.supabase.co"
-SUPABASE_KEY = "LA_TUA_ANON_KEY"
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -18,14 +18,16 @@ st.title("📊 ERP Ecommerce Dashboard")
 
 
 # =========================
-# 📦 UTILITY FUNCTION
+# 📦 UTILITY FUNCTIONS
 # =========================
 def fetch_table(table_name: str):
     """Recupera dati da Supabase e li converte in DataFrame."""
-    response = supabase.table(table_name).select("*").execute()
-    if response.data:
-        return pd.DataFrame(response.data)
-    return pd.DataFrame()
+    try:
+        response = supabase.table(table_name).select("*").execute()
+        return pd.DataFrame(response.data or [])
+    except Exception as e:
+        st.error(f"Errore nel caricamento tabella {table_name}: {e}")
+        return pd.DataFrame()
 
 
 def show_dataframe(df: pd.DataFrame, empty_msg: str):
@@ -46,8 +48,12 @@ df_orders = fetch_table("orders")
 
 if not df_orders.empty:
     col1, col2 = st.columns(2)
+
     col1.metric("Totale ordini", len(df_orders))
-    col2.metric("Fatturato totale", f"€ {df_orders['revenue'].sum():,.2f}")
+    col2.metric(
+        "Fatturato totale",
+        f"€ {df_orders.get('revenue', pd.Series([0])).sum():,.2f}"
+    )
 
     show_dataframe(df_orders, "Nessun ordine trovato")
 else:
