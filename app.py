@@ -24,12 +24,10 @@ if menu == "Dashboard":
     ordini = supabase.table("ordini").select("*").execute().data
     righe = supabase.table("righe_ordine").select("*").execute().data
 
-    fatturato = sum([o.get("fatturato_totale", 0) or 0 for o in ordini])
-
     col1, col2, col3 = st.columns(3)
-    col1.metric("💰 Fatturato", f"{fatturato:.2f} €")
-    col2.metric("📦 Ordini", len(ordini))
-    col3.metric("🧾 Righe", len(righe))
+    col1.metric("📦 Ordini", len(ordini))
+    col2.metric("🧾 Righe", len(righe))
+    col3.metric("💰 Fatturato righe", sum([r.get("totale_riga", 0) or 0 for r in righe]))
 
 
 # ======================
@@ -75,36 +73,23 @@ if menu == "Import":
 
                 for _, r in gruppo.iterrows():
 
-                    prezzo_base = r.get("prezzo_base", 0)
-                    spedizione = r.get("spedizione", 0)
-                    imposta_articolo = r.get("imposta_articolo", 0)
-                    imposta_spedizione = r.get("imposta_spedizione", 0)
+                    prezzo = float(r.get("prezzo_base", 0) or 0)
+                    quantita = int(r.get("quantita", 0) or 0)
 
-                    totale = (
-                        prezzo_base +
-                        spedizione +
-                        imposta_articolo +
-                        imposta_spedizione
-                    )
+                    totale = prezzo * quantita
 
                     righe.append({
-                        "ordine_id": ordine_id,
+                        "ordine_id": str(ordine_id),
                         "sku_prodotto": str(r.get("sku", "")),
-                        "quantita": int(r.get("quantita", 0) or 0),
-
-                        "prezzo_unitario": float(
-                            r.get("prezzo_base", 0) or 0
-                        ),
-
-                        "totale_riga": float(
-                            r.get("prezzo_base", 0) or 0
-                        )
+                        "quantita": quantita,
+                        "prezzo_unitario": prezzo,
+                        "totale_riga": totale
                     })
 
                 supabase.table("righe_ordine").insert(righe).execute()
 
                 supabase.table("ordini").upsert({
-                    "id": ordine_id,
+                    "id": str(ordine_id),
                     "marketplace": source,
                     "mercato": mercato
                 }).execute()
