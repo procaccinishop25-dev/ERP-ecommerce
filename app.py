@@ -24,19 +24,10 @@ def safe_str(x):
     return str(x)
 
 
-def safe_date(x):
-    if x is None or pd.isna(x):
-        return None
-    return str(x)
-
-
 # ======================
 # MENU
 # ======================
-menu = st.sidebar.selectbox(
-    "Menu",
-    ["Dashboard", "Ordini", "Import"]
-)
+menu = st.sidebar.selectbox("Menu", ["Dashboard", "Ordini", "Import"])
 
 
 # ======================
@@ -51,10 +42,9 @@ if menu == "Dashboard":
 
     fatturato = sum([o.get("fatturato_totale", 0) or 0 for o in ordini])
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("📦 Ordini", len(ordini))
-    col2.metric("🧾 Righe", len(righe))
-    col3.metric("💰 Fatturato", f"{fatturato:.2f} €")
+    st.metric("Ordini", len(ordini))
+    st.metric("Righe", len(righe))
+    st.metric("Fatturato", f"{fatturato:.2f} €")
 
 
 # ======================
@@ -63,7 +53,6 @@ if menu == "Dashboard":
 if menu == "Ordini":
 
     st.title("📦 Ordini")
-
     ordini = supabase.table("ordini").select("*").execute().data
     st.dataframe(ordini)
 
@@ -91,63 +80,73 @@ if menu == "Import":
         parser = load_parser("temu")
         df = parser.parse(df)
 
-        st.write("Preview dati:")
         st.dataframe(df.head())
 
         if st.button("IMPORTA"):
 
-            # ======================
-            # CREA RIGHE TEMP
-            # ======================
-            righe_temp = []
+            try:
 
-            for _, r in df.iterrows():
+                # ======================
+                # RIGHE TEMP
+                # ======================
+                righe_temp = []
 
-                prezzo = safe_float(r.get("prezzo_unitario"))
-                qty = int(safe_float(r.get("quantita")))
+                for _, r in df.iterrows():
 
-                righe_temp.append({
-                    "sku_prodotto": safe_str(r.get("sku_prodotto")),
-                    "quantita": qty,
-                    "prezzo_unitario": prezzo,
-                    "totale_riga": prezzo * qty
-                })
+                    prezzo = safe_float(r.get("prezzo_unitario"))
+                    qty = int(safe_float(r.get("quantita")))
 
-            fatturato_totale = sum([x["totale_riga"] for x in righe_temp])
+                    righe_temp.append({
+                        "sku_prodotto": safe_str(r.get("sku_prodotto")),
+                        "quantita": qty,
+                        "prezzo_unitario": prezzo,
+                        "totale_riga": prezzo * qty
+                    })
 
-            # ======================
-            # ORDINE HEADER (SAFE)
-            # ======================
-            ordine_esterno = safe_str(df.iloc[0].get("ordine_id"))
-            data_ordine = safe_date(df.iloc[0].get("data_ordine"))
+                fatturato_totale = sum([x["totale_riga"] for x in righe_temp])
 
-            ordine_payload = {
-                "numero_ordine": ordine_esterno,
-                "marketplace": safe_str(marketplace),
-                "mercato": safe_str(mercato),
-                "data_ordine": data_ordine,
-                "fatturato_totale": float(fatturato_totale)
-            }
+                # ======================
+                # ORDINE PAYLOAD
+                # ======================
+                ordine_payload = {
+                    "numero_ordine": safe_str(df.iloc[0].get("ordine_id")),
+                    "marketplace": safe_str(marketplace),
+                    "mercato": safe_str(mercato),
+                    "fatturato_totale": float(fatturato_totale)
+                }
 
-            st.write("DEBUG ORDINE:", ordine_payload)
+                st.write("DEBUG ORDINE:", ordine_payload)
 
-            ordine = supabase.table("ordini").insert(ordine_payload).execute()
-            ordine_uuid = ordine.data[0]["id"]
+                # ======================
+                # INSERT ORDINE (CON ERROR HANDLING)
+                # ======================
+                try:
+                    ordine = supabase.table("ordini").insert(ordine_payload).execute()
+                except Exception as e:
+                    st.error("❌ ERRORE SUPABASE ORDINE:")
+                    st.exception(e)
+                    st.stop()
 
-            # ======================
-            # RIGHE ORDINE
-            # ======================
-            clean_righe = []
+                ordine_uuid = ordine.data[0]["id"]
 
-            for r in righe_temp:
-                clean_righe.append({
-                    "ordine_id": ordine_uuid,
-                    "sku_prodotto": r["sku_prodotto"],
-                    "quantita": r["quantita"],
-                    "prezzo_unitario": r["prezzo_unitario"],
-                    "totale_riga": r["totale_riga"]
-                })
+                # ======================
+                # RIGHE ORDINE
+                # ======================
+                clean_righe = []
 
-            supabase.table("righe_ordine").insert(clean_righe).execute()
+                for r in righe_temp:
+                    clean_righe.append({
+                        "ordine_id": ordine_uuid,
+                        "sku_prodotto": r["sku_prodotto"],
+                        "quantita": r["quantita"],
+                        "prezzo_unitario": r["prezzo_unitario"],
+                        "totale_riga": r["totale_riga"]
+                    })
 
-            st.success("IMPORT COMPLETATO 🚀")
+                supabase.table("righe_ordine").insert(clean_righe).execute()
+
+                st.success("IMPORT COMPLETATO 🚀")
+
+            except Exception as e:
+                st.error("❌ ERRORE GENERALE:")
+                st.exception(e)
