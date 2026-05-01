@@ -4,13 +4,12 @@ def parse(df):
 
     df = df.rename(columns={
         "ID Ordine": "ordine_id",
-        "Codice SKU": "sku",
+        "Codice SKU": "sku_prodotto",
         "quantità acquistata": "quantita",
-
-        "Totale prezzo base dopo lo sconto": "prezzo_base",
-        "Totale spedizione (imposte escluse)": "spedizione",
-        "Imposta sull'articolo": "imposta_articolo",
-        "Imposta sulla spedizione": "imposta_spedizione"
+        "prezzo base della merce": "prezzo_unitario"
     })
+
+    # calcolo totale riga
+    df["totale_riga"] = df["prezzo_unitario"] * df["quantita"]
 
     return df
