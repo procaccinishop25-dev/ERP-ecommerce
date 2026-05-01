@@ -1,21 +1,16 @@
 def import_to_supabase(data, supabase):
-    """
-    data = {
-        "orders": [...],
-        "rows": [...]
-    }
-    """
 
-    # 1. inserisci ordini e prendi ID
-    order_response = supabase.table("ordini").insert(data["orders"]).execute()
+    # 1. crea ordine
+    order_res = supabase.table("ordini").insert(data["orders"]).execute()
 
-    order_id = order_response.data[0]["id"]
+    order_id = order_res.data[0]["id"]
 
-    # 2. assegna order_id alle righe
+    # 2. collega righe
     for r in data["rows"]:
         r["ordine_id"] = order_id
 
     # 3. inserisci righe
-    supabase.table("righe_ordine").insert(data["rows"]).execute()
+    if data["rows"]:
+        supabase.table("righe_ordine").insert(data["rows"]).execute()
 
     return order_id
