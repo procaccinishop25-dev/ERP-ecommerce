@@ -7,7 +7,7 @@ st.set_page_config(page_title="ERP Ecommerce", layout="wide")
 
 
 # ======================
-# SAFE FUNCTIONS
+# SAFE FUNCTIONS (NO JSON ERRORS)
 # ======================
 def safe_float(x):
     try:
@@ -25,9 +25,13 @@ def safe_str(x):
 
 
 def safe_date(x):
-    if x is None or pd.isna(x) or str(x) == "":
-        return pd.Timestamp.now().date()  # 👈 FIX CRITICO
-    return str(x).split(" ")[0]
+    # 🔥 SEMPRE STRINGA (NO datetime objects mai)
+    try:
+        if x is None or pd.isna(x) or str(x).strip() == "":
+            return pd.Timestamp.now().strftime("%Y-%m-%d")
+        return pd.to_datetime(x).strftime("%Y-%m-%d")
+    except:
+        return pd.Timestamp.now().strftime("%Y-%m-%d")
 
 
 # ======================
@@ -93,7 +97,7 @@ if menu == "Import":
             try:
 
                 # ======================
-                # RIGHE TEMP
+                # CREA RIGHE TEMP
                 # ======================
                 righe_temp = []
 
@@ -112,7 +116,7 @@ if menu == "Import":
                 fatturato_totale = sum([x["totale_riga"] for x in righe_temp])
 
                 # ======================
-                # ORDINE PAYLOAD (FIX DEFINITIVO DATA)
+                # ORDINE PAYLOAD (NO DATE OBJECTS)
                 # ======================
                 ordine_payload = {
                     "numero_ordine": safe_str(df.iloc[0].get("ordine_id")),
@@ -131,7 +135,7 @@ if menu == "Import":
                 ordine_uuid = ordine.data[0]["id"]
 
                 # ======================
-                # RIGHE ORDINE
+                # INSERT RIGHE
                 # ======================
                 clean_righe = []
 
