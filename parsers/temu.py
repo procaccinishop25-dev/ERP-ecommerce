@@ -10,6 +10,4 @@ def parse(df):
         "Data Ordine": "data_ordine"
     })
 
-    df["totale_riga"] = df["prezzo_unitario"] * df["quantita"]
-
     return df
