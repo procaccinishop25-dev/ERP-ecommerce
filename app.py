@@ -1,50 +1,37 @@
 import streamlit as st
 import pandas as pd
+from supabase import create_client
 
-from config.marketplaces import MARKETPLACES
-from services.import_engine import import_orders
+from adapters.temu import transform as temu_transform
+from adapters.ebay import transform as ebay_transform
+from core.importer import import_to_supabase
 
+# secrets
+url = st.secrets["SUPABASE_URL"]
+key = st.secrets["SUPABASE_KEY"]
 
-# ======================
-# UI
-# ======================
-st.title("ERP Ecommerce")
+supabase = create_client(url, key)
 
-st.sidebar.header("Impostazioni")
+st.title("Import Ordini Universale")
 
-marketplace = st.sidebar.selectbox(
-    "Marketplace",
-    list(MARKETPLACES.keys())
-)
+marketplace = st.selectbox("Marketplace", ["TEMU", "EBAY"])
+mercato = st.text_input("Mercato")
 
-mercato = st.sidebar.selectbox(
-    "Mercato",
-    ["IT", "EU"]
-)
-
-config = MARKETPLACES[marketplace]
-
-
-# ======================
-# FILE UPLOAD
-# ======================
-file = st.file_uploader("Carica Excel", type=["xlsx"])
-
+file = st.file_uploader("Carica Excel")
 
 if file:
 
     df = pd.read_excel(file)
+    st.dataframe(df.head())
 
-    df.columns = df.columns.str.strip()
+    if st.button("IMPORTA"):
 
-    st.subheader("Preview dati")
-    st.write(df.columns.tolist())
-    st.dataframe(df)
+        if marketplace == "TEMU":
+            data = temu_transform(df, marketplace, mercato)
 
-    if st.button("Importa dati"):
+        elif marketplace == "EBAY":
+            data = ebay_transform(df, marketplace, mercato)
 
-        with st.spinner("Import in corso..."):
+        order_id = import_to_supabase(data, supabase)
 
-            import_orders(df, config, marketplace, mercato)
-
-        st.success("Import completato ✅")
+        st.success(f"Import completato: {order_id}")
