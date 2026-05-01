@@ -3,12 +3,12 @@ import pandas as pd
 import importlib
 from supabase_client import supabase
 
-st.set_page_config(page_title="ERP Ecommerce", layout="wide")
+st.set_page_config(page_title="ERP", layout="wide")
 
 
-# ======================
-# SAFE FUNCTIONS (NO JSON ERRORS)
-# ======================
+# =====================
+# FUNZIONI SICURE
+# =====================
 def safe_float(x):
     try:
         if x is None or pd.isna(x):
@@ -25,133 +25,75 @@ def safe_str(x):
 
 
 def safe_date(x):
-    # 🔥 SEMPRE STRINGA (NO datetime objects mai)
-    try:
-        if x is None or pd.isna(x) or str(x).strip() == "":
-            return pd.Timestamp.now().strftime("%Y-%m-%d")
-        return pd.to_datetime(x).strftime("%Y-%m-%d")
-    except:
+    if x is None or pd.isna(x):
         return pd.Timestamp.now().strftime("%Y-%m-%d")
+    return pd.to_datetime(x).strftime("%Y-%m-%d")
 
 
-# ======================
-# MENU
-# ======================
-menu = st.sidebar.selectbox("Menu", ["Dashboard", "Ordini", "Import"])
-
-
-# ======================
-# DASHBOARD
-# ======================
-if menu == "Dashboard":
-
-    st.title("📊 ERP Dashboard")
-
-    ordini = supabase.table("ordini").select("*").execute().data
-    righe = supabase.table("righe_ordine").select("*").execute().data
-
-    fatturato = sum([o.get("fatturato_totale", 0) or 0 for o in ordini])
-
-    st.metric("Ordini", len(ordini))
-    st.metric("Righe", len(righe))
-    st.metric("Fatturato", f"{fatturato:.2f} €")
-
-
-# ======================
-# ORDINI
-# ======================
-if menu == "Ordini":
-
-    st.title("📦 Ordini")
-    ordini = supabase.table("ordini").select("*").execute().data
-    st.dataframe(ordini)
-
-
-# ======================
+# =====================
 # IMPORT
-# ======================
-if menu == "Import":
+# =====================
+st.title("📥 Import Ordini")
 
-    st.title("📥 Import Marketplace")
+marketplace = st.text_input("Marketplace")
+mercato = st.text_input("Mercato")
 
-    marketplace = st.text_input("Marketplace")
-    mercato = st.text_input("Mercato")
+file = st.file_uploader("Excel")
 
-    file = st.file_uploader("Carica Excel")
-
-    def load_parser(name):
-        return importlib.import_module(f"parsers.{name}")
+def load_parser():
+    return importlib.import_module("parsers.temu")
 
 
-    if file:
+if file:
 
-        df = pd.read_excel(file)
+    df = pd.read_excel(file)
+    parser = load_parser()
+    df = parser.parse(df)
 
-        parser = load_parser("temu")
-        df = parser.parse(df)
+    st.write(df.head())
 
-        st.dataframe(df.head())
+    if st.button("IMPORTA"):
 
-        if st.button("IMPORTA"):
+        # =====================
+        # RIGHE
+        # =====================
+        righe = []
 
-            try:
+        for _, r in df.iterrows():
 
-                # ======================
-                # CREA RIGHE TEMP
-                # ======================
-                righe_temp = []
+            prezzo = safe_float(r.get("prezzo_unitario"))
+            qty = int(safe_float(r.get("quantita")))
 
-                for _, r in df.iterrows():
+            righe.append({
+                "sku_prodotto": safe_str(r.get("sku_prodotto")),
+                "quantita": qty,
+                "prezzo_unitario": prezzo,
+                "totale_riga": prezzo * qty
+            })
 
-                    prezzo = safe_float(r.get("prezzo_unitario"))
-                    qty = int(safe_float(r.get("quantita")))
+        # 🔥 FATTURATO CORRETTO (NON PIÙ 0)
+        fatturato_totale = sum([x["totale_riga"] for x in righe])
 
-                    righe_temp.append({
-                        "sku_prodotto": safe_str(r.get("sku_prodotto")),
-                        "quantita": qty,
-                        "prezzo_unitario": prezzo,
-                        "totale_riga": prezzo * qty
-                    })
+        # =====================
+        # ORDINE
+        # =====================
+        ordine_payload = {
+            "numero_ordine": safe_str(df.iloc[0]["ordine_id"]),
+            "marketplace": marketplace,
+            "mercato": mercato,
+            "data_ordine": safe_date(df.iloc[0].get("data_ordine")),
+            "fatturato_totale": fatturato_totale
+        }
 
-                fatturato_totale = sum([x["totale_riga"] for x in righe_temp])
+        ordine = supabase.table("ordini").insert(ordine_payload).execute()
+        ordine_id = ordine.data[0]["id"]
 
-                # ======================
-                # ORDINE PAYLOAD (NO DATE OBJECTS)
-                # ======================
-                ordine_payload = {
-                    "numero_ordine": safe_str(df.iloc[0].get("ordine_id")),
-                    "marketplace": safe_str(marketplace),
-                    "mercato": safe_str(mercato),
-                    "data_ordine": safe_date(df.iloc[0].get("data_ordine")),
-                    "fatturato_totale": float(fatturato_totale)
-                }
+        # =====================
+        # RIGHE ORDINE
+        # =====================
+        for r in righe:
+            r["ordine_id"] = ordine_id
 
-                st.write("DEBUG ORDINE:", ordine_payload)
+        supabase.table("righe_ordine").insert(righe).execute()
 
-                # ======================
-                # INSERT ORDINE
-                # ======================
-                ordine = supabase.table("ordini").insert(ordine_payload).execute()
-                ordine_uuid = ordine.data[0]["id"]
-
-                # ======================
-                # INSERT RIGHE
-                # ======================
-                clean_righe = []
-
-                for r in righe_temp:
-                    clean_righe.append({
-                        "ordine_id": ordine_uuid,
-                        "sku_prodotto": r["sku_prodotto"],
-                        "quantita": r["quantita"],
-                        "prezzo_unitario": r["prezzo_unitario"],
-                        "totale_riga": r["totale_riga"]
-                    })
-
-                supabase.table("righe_ordine").insert(clean_righe).execute()
-
-                st.success("IMPORT COMPLETATO 🚀")
-
-            except Exception as e:
-                st.error("❌ ERRORE COMPLETO:")
-                st.exception(e)
+        st.success("IMPORT COMPLETATO")
