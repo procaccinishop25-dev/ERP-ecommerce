@@ -6,6 +6,7 @@ from supabase_client import supabase
 
 st.set_page_config(page_title="ERP Ecommerce", layout="wide")
 
+
 # ======================
 # MENU
 # ======================
@@ -13,6 +14,19 @@ menu = st.sidebar.selectbox(
     "Menu",
     ["Dashboard", "Ordini", "Import"]
 )
+
+
+# ======================
+# SAFE CONVERSION
+# ======================
+def safe_float(x):
+    try:
+        if x is None:
+            return 0.0
+        return float(str(x).replace(",", "."))
+    except:
+        return 0.0
+
 
 # ======================
 # DASHBOARD
@@ -72,26 +86,29 @@ if menu == "Import":
             for ordine_id, gruppo in df.groupby("ordine_id"):
 
                 # ======================
-                # RIGHE ORDINE
+                # RIGHE ORDINE (SAFE)
                 # ======================
                 righe = []
 
                 for _, r in gruppo.iterrows():
 
+                    prezzo = safe_float(r.get("prezzo_unitario", 0))
+                    quantita = int(safe_float(r.get("quantita", 0)))
+
                     righe.append({
                         "ordine_id": str(ordine_id),
-                        "sku_prodotto": str(r["sku_prodotto"]),
-                        "quantita": int(r["quantita"]),
-                        "prezzo_unitario": float(r["prezzo_unitario"]),
-                        "totale_riga": float(r["totale_riga"])
+                        "sku_prodotto": str(r.get("sku_prodotto", "")),
+                        "quantita": quantita,
+                        "prezzo_unitario": prezzo,
+                        "totale_riga": prezzo * quantita
                     })
 
                 supabase.table("righe_ordine").insert(righe).execute()
 
                 # ======================
-                # ORDINE (HEADER)
+                # ORDINE HEADER
                 # ======================
-                data_ordine = gruppo.iloc[0]["data_ordine"]
+                data_ordine = gruppo.iloc[0].get("data_ordine", "")
 
                 fatturato_totale = sum([x["totale_riga"] for x in righe])
 
