@@ -6,6 +6,9 @@ from supabase_client import supabase
 
 st.set_page_config(page_title="ERP Ecommerce", layout="wide")
 
+# ======================
+# MENU
+# ======================
 menu = st.sidebar.selectbox(
     "Menu",
     ["Dashboard", "Ordini", "Import"]
@@ -49,9 +52,8 @@ if menu == "Import":
 
     marketplace = st.text_input("Marketplace")
     mercato = st.text_input("Mercato")
-    data_ordine_input = st.date_input("Data ordine")
 
-    file = st.file_uploader("Carica file Excel")
+    file = st.file_uploader("Carica Excel")
 
     def load_parser(source):
         return importlib.import_module(f"parsers.{source}")
@@ -78,7 +80,7 @@ if menu == "Import":
 
                     righe.append({
                         "ordine_id": str(ordine_id),
-                        "sku_prodotto": r["sku_prodotto"],
+                        "sku_prodotto": str(r["sku_prodotto"]),
                         "quantita": int(r["quantita"]),
                         "prezzo_unitario": float(r["prezzo_unitario"]),
                         "totale_riga": float(r["totale_riga"])
@@ -89,14 +91,16 @@ if menu == "Import":
                 # ======================
                 # ORDINE (HEADER)
                 # ======================
+                data_ordine = gruppo.iloc[0]["data_ordine"]
+
                 fatturato_totale = sum([x["totale_riga"] for x in righe])
 
                 supabase.table("ordini").upsert({
                     "numero_ordine": str(ordine_id),
-                    "data_ordine": str(data_ordine_input),
+                    "data_ordine": str(data_ordine),
                     "marketplace": marketplace,
                     "mercato": mercato,
-                    "fatturato_totale": fatturato_totale
+                    "fatturato_totale": float(fatturato_totale)
                 }).execute()
 
             st.success("IMPORT COMPLETATO")
