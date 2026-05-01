@@ -4,12 +4,15 @@ import pandas as pd
 from config.marketplaces import MARKETPLACES
 from services.import_engine import import_orders
 
-st.title("ERP Ecommerce - Temu Base")
+# ======================
+# TITOLO
+# ======================
+st.title("ERP Ecommerce - Import Temu")
 
-# =====================
-# SIDEBAR
-# =====================
-st.sidebar.header("Impostazioni")
+# ======================
+# SIDEBAR (INPUT UTENTE)
+# ======================
+st.sidebar.header("Impostazioni import")
 
 marketplace = st.sidebar.selectbox(
     "Marketplace",
@@ -21,28 +24,38 @@ mercato = st.sidebar.selectbox(
     ["IT", "EU"]
 )
 
+st.sidebar.info("Seleziona marketplace e mercato prima di importare")
+
 config = MARKETPLACES[marketplace]
 
-# =====================
+# ======================
 # UPLOAD FILE
-# =====================
-file = st.file_uploader("Carica Excel Temu", type=["xlsx"])
+# ======================
+file = st.file_uploader("Carica Excel", type=["xlsx"])
 
+# ======================
+# PREVIEW DATI
+# ======================
 if file:
 
     df = pd.read_excel(file)
 
-    # debug (IMPORTANTE)
+    # pulizia colonne (FONDAMENTALE)
+    df.columns = df.columns.str.strip()
+
+    st.subheader("Anteprima dati")
     st.write("Colonne trovate:")
     st.write(df.columns.tolist())
 
     st.dataframe(df)
 
-    # =====================
-    # IMPORT
-    # =====================
-    if st.button("Importa dati"):
+    # ======================
+    # IMPORT BUTTON
+    # ======================
+    if st.button("🚀 Importa dati su ERP"):
 
-        import_orders(df, config, marketplace, mercato)
+        with st.spinner("Import in corso..."):
 
-        st.success("Import completato ✅")
+            import_orders(df, config, marketplace, mercato)
+
+        st.success("Import completato con successo ✅")
