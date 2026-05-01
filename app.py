@@ -10,13 +10,13 @@ pagina = st.sidebar.radio(
 )
 
 if pagina == "Dashboard":
-    import pages.dashboard as dashboard
-    dashboard.show()
+    import pages.dashboard as p
+    p.show()
 
 elif pagina == "Ordini":
-    import pages.ordini as ordini
-    ordini.show()
+    import pages.ordini as p
+    p.show()
 
 elif pagina == "Import":
-    import pages.import_page as import_page
-    import_page.show()
+    import pages.import_page as p
+    p.show()
