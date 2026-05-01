@@ -6,9 +6,6 @@ from supabase_client import supabase
 
 st.set_page_config(page_title="ERP Ecommerce", layout="wide")
 
-# ======================
-# SIDEBAR
-# ======================
 menu = st.sidebar.selectbox(
     "Menu",
     ["Dashboard", "Ordini", "Import"]
@@ -24,10 +21,12 @@ if menu == "Dashboard":
     ordini = supabase.table("ordini").select("*").execute().data
     righe = supabase.table("righe_ordine").select("*").execute().data
 
+    fatturato = sum([o.get("fatturato_totale", 0) or 0 for o in ordini])
+
     col1, col2, col3 = st.columns(3)
     col1.metric("📦 Ordini", len(ordini))
     col2.metric("🧾 Righe", len(righe))
-    col3.metric("💰 Fatturato righe", sum([r.get("totale_riga", 0) or 0 for r in righe]))
+    col3.metric("💰 Fatturato", f"{fatturato:.2f} €")
 
 
 # ======================
@@ -46,12 +45,13 @@ if menu == "Ordini":
 # ======================
 if menu == "Import":
 
-    st.title("📥 Import Ordini")
+    st.title("📥 Import Temu")
 
-    source = st.selectbox("Marketplace", ["temu"])
-    mercato = st.selectbox("Mercato", ["IT", "DE", "FR"])
+    marketplace = st.text_input("Marketplace")
+    mercato = st.text_input("Mercato")
+    data_ordine_input = st.date_input("Data ordine")
 
-    file = st.file_uploader("Carica Excel")
+    file = st.file_uploader("Carica file Excel")
 
     def load_parser(source):
         return importlib.import_module(f"parsers.{source}")
@@ -60,7 +60,7 @@ if menu == "Import":
 
         df = pd.read_excel(file)
 
-        parser = load_parser(source)
+        parser = load_parser("temu")
         df = parser.parse(df)
 
         st.write(df.head())
@@ -69,29 +69,34 @@ if menu == "Import":
 
             for ordine_id, gruppo in df.groupby("ordine_id"):
 
+                # ======================
+                # RIGHE ORDINE
+                # ======================
                 righe = []
 
                 for _, r in gruppo.iterrows():
 
-                    prezzo = float(r.get("prezzo_base", 0) or 0)
-                    quantita = int(r.get("quantita", 0) or 0)
-
-                    totale = prezzo * quantita
-
                     righe.append({
                         "ordine_id": str(ordine_id),
-                        "sku_prodotto": str(r.get("sku", "")),
-                        "quantita": quantita,
-                        "prezzo_unitario": prezzo,
-                        "totale_riga": totale
+                        "sku_prodotto": r["sku_prodotto"],
+                        "quantita": int(r["quantita"]),
+                        "prezzo_unitario": float(r["prezzo_unitario"]),
+                        "totale_riga": float(r["totale_riga"])
                     })
 
                 supabase.table("righe_ordine").insert(righe).execute()
 
+                # ======================
+                # ORDINE (HEADER)
+                # ======================
+                fatturato_totale = sum([x["totale_riga"] for x in righe])
+
                 supabase.table("ordini").upsert({
-                    "id": str(ordine_id),
-                    "marketplace": source,
-                    "mercato": mercato
+                    "numero_ordine": str(ordine_id),
+                    "data_ordine": str(data_ordine_input),
+                    "marketplace": marketplace,
+                    "mercato": mercato,
+                    "fatturato_totale": fatturato_totale
                 }).execute()
 
             st.success("IMPORT COMPLETATO")
