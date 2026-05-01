@@ -7,19 +7,31 @@ st.set_page_config(page_title="ERP Ecommerce", layout="wide")
 
 
 # ======================
-# SAFE CONVERSION
+# SAFE FUNCTIONS
 # ======================
 def safe_float(x):
     try:
-        if x is None:
+        if x is None or pd.isna(x):
             return 0.0
         return float(str(x).replace(",", "."))
     except:
         return 0.0
 
 
+def safe_str(x):
+    if x is None or pd.isna(x):
+        return ""
+    return str(x)
+
+
+def safe_date(x):
+    if x is None or pd.isna(x):
+        return None
+    return str(x)
+
+
 # ======================
-# SIDEBAR MENU
+# MENU
 # ======================
 menu = st.sidebar.selectbox(
     "Menu",
@@ -32,7 +44,7 @@ menu = st.sidebar.selectbox(
 # ======================
 if menu == "Dashboard":
 
-    st.title("📊 Dashboard ERP")
+    st.title("📊 ERP Dashboard")
 
     ordini = supabase.table("ordini").select("*").execute().data
     righe = supabase.table("righe_ordine").select("*").execute().data
@@ -41,7 +53,7 @@ if menu == "Dashboard":
 
     col1, col2, col3 = st.columns(3)
     col1.metric("📦 Ordini", len(ordini))
-    col2.metric("🧾 Righe Ordine", len(righe))
+    col2.metric("🧾 Righe", len(righe))
     col3.metric("💰 Fatturato", f"{fatturato:.2f} €")
 
 
@@ -63,12 +75,11 @@ if menu == "Import":
 
     st.title("📥 Import Marketplace")
 
-    marketplace = st.text_input("Marketplace (temu, amazon, shopify...)")
-    mercato = st.text_input("Mercato (IT, DE, FR...)")
+    marketplace = st.text_input("Marketplace")
+    mercato = st.text_input("Mercato")
 
-    file = st.file_uploader("Carica file Excel")
+    file = st.file_uploader("Carica Excel")
 
-    # carica parser dinamico
     def load_parser(name):
         return importlib.import_module(f"parsers.{name}")
 
@@ -77,32 +88,26 @@ if menu == "Import":
 
         df = pd.read_excel(file)
 
-        parser = load_parser("temu")  # puoi renderlo dinamico dopo
+        parser = load_parser("temu")
         df = parser.parse(df)
 
-        st.write("Anteprima dati:")
+        st.write("Preview dati:")
         st.dataframe(df.head())
 
         if st.button("IMPORTA"):
 
-            # =========================
-            # CREA ORDINE (HEADER)
-            # =========================
-            ordine_esterno = str(df.iloc[0]["ordine_id"])
-            data_ordine = df.iloc[0].get("data_ordine", None)
-
+            # ======================
+            # CREA RIGHE TEMP
+            # ======================
             righe_temp = []
 
-            # =========================
-            # CREA RIGHE
-            # =========================
             for _, r in df.iterrows():
 
-                prezzo = safe_float(r.get("prezzo_unitario", 0))
-                qty = int(safe_float(r.get("quantita", 0)))
+                prezzo = safe_float(r.get("prezzo_unitario"))
+                qty = int(safe_float(r.get("quantita")))
 
                 righe_temp.append({
-                    "sku_prodotto": str(r.get("sku_prodotto", "")),
+                    "sku_prodotto": safe_str(r.get("sku_prodotto")),
                     "quantita": qty,
                     "prezzo_unitario": prezzo,
                     "totale_riga": prezzo * qty
@@ -110,25 +115,39 @@ if menu == "Import":
 
             fatturato_totale = sum([x["totale_riga"] for x in righe_temp])
 
-            # =========================
-            # INSERT ORDINE (UUID ERP)
-            # =========================
-            ordine = supabase.table("ordini").insert({
-                "numero_ordine": ordine_esterno,
-                "marketplace": marketplace,
-                "mercato": mercato,
-                "data_ordine": data_ordine,
-                "fatturato_totale": fatturato_totale
-            }).execute()
+            # ======================
+            # ORDINE HEADER (SAFE)
+            # ======================
+            ordine_esterno = safe_str(df.iloc[0].get("ordine_id"))
+            data_ordine = safe_date(df.iloc[0].get("data_ordine"))
 
+            ordine_payload = {
+                "numero_ordine": ordine_esterno,
+                "marketplace": safe_str(marketplace),
+                "mercato": safe_str(mercato),
+                "data_ordine": data_ordine,
+                "fatturato_totale": float(fatturato_totale)
+            }
+
+            st.write("DEBUG ORDINE:", ordine_payload)
+
+            ordine = supabase.table("ordini").insert(ordine_payload).execute()
             ordine_uuid = ordine.data[0]["id"]
 
-            # =========================
-            # INSERT RIGHE
-            # =========================
+            # ======================
+            # RIGHE ORDINE
+            # ======================
+            clean_righe = []
+
             for r in righe_temp:
-                r["ordine_id"] = ordine_uuid
+                clean_righe.append({
+                    "ordine_id": ordine_uuid,
+                    "sku_prodotto": r["sku_prodotto"],
+                    "quantita": r["quantita"],
+                    "prezzo_unitario": r["prezzo_unitario"],
+                    "totale_riga": r["totale_riga"]
+                })
 
-            supabase.table("righe_ordine").insert(righe_temp).execute()
+            supabase.table("righe_ordine").insert(clean_righe).execute()
 
-            st.success("IMPORT COMPLETATO CON SUCCESSO 🚀")
+            st.success("IMPORT COMPLETATO 🚀")
