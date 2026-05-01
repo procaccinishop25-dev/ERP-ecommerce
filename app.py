@@ -1,24 +1,9 @@
 import streamlit as st
 import pandas as pd
 import importlib
-
 from supabase_client import supabase
 
-st.set_page_config(page_title="ERP Ecommerce", layout="wide")
 
-
-# ======================
-# MENU
-# ======================
-menu = st.sidebar.selectbox(
-    "Menu",
-    ["Dashboard", "Ordini", "Import"]
-)
-
-
-# ======================
-# SAFE CONVERSION
-# ======================
 def safe_float(x):
     try:
         if x is None:
@@ -28,96 +13,66 @@ def safe_float(x):
         return 0.0
 
 
-# ======================
-# DASHBOARD
-# ======================
-if menu == "Dashboard":
+st.title("ERP IMPORT")
 
-    st.title("📊 Dashboard")
+marketplace = st.text_input("Marketplace")
+mercato = st.text_input("Mercato")
 
-    ordini = supabase.table("ordini").select("*").execute().data
-    righe = supabase.table("righe_ordine").select("*").execute().data
+file = st.file_uploader("File Excel")
 
-    fatturato = sum([o.get("fatturato_totale", 0) or 0 for o in ordini])
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("📦 Ordini", len(ordini))
-    col2.metric("🧾 Righe", len(righe))
-    col3.metric("💰 Fatturato", f"{fatturato:.2f} €")
+def load_parser(name):
+    return importlib.import_module(f"parsers.{name}")
 
 
-# ======================
-# ORDINI
-# ======================
-if menu == "Ordini":
+if file:
 
-    st.title("📦 Ordini")
+    df = pd.read_excel(file)
 
-    ordini = supabase.table("ordini").select("*").execute().data
-    st.dataframe(ordini)
+    parser = load_parser("temu")  # poi diventa dinamico
+    df = parser.parse(df)
 
+    st.write(df.head())
 
-# ======================
-# IMPORT
-# ======================
-if menu == "Import":
+    if st.button("IMPORTA"):
 
-    st.title("📥 Import Temu")
+        # ======================
+        # 1. CREA ORDINE HEADER
+        # ======================
+        ordine_id_esterno = str(df.iloc[0]["ordine_id"])
+        data_ordine = df.iloc[0]["data_ordine"]
 
-    marketplace = st.text_input("Marketplace")
-    mercato = st.text_input("Mercato")
+        righe_temp = []
 
-    file = st.file_uploader("Carica Excel")
+        for _, r in df.iterrows():
 
-    def load_parser(source):
-        return importlib.import_module(f"parsers.{source}")
+            prezzo = safe_float(r.get("prezzo_unitario", 0))
+            qty = int(safe_float(r.get("quantita", 0)))
 
-    if file:
+            righe_temp.append({
+                "sku_prodotto": str(r.get("sku_prodotto", "")),
+                "quantita": qty,
+                "prezzo_unitario": prezzo,
+                "totale_riga": prezzo * qty
+            })
 
-        df = pd.read_excel(file)
+        fatturato_totale = sum([x["totale_riga"] for x in righe_temp])
 
-        parser = load_parser("temu")
-        df = parser.parse(df)
+        ordine = supabase.table("ordini").insert({
+            "numero_ordine": ordine_id_esterno,
+            "marketplace": marketplace,
+            "mercato": mercato,
+            "data_ordine": data_ordine,
+            "fatturato_totale": fatturato_totale
+        }).execute()
 
-        st.write(df.head())
+        ordine_uuid = ordine.data[0]["id"]
 
-        if st.button("IMPORTA"):
+        # ======================
+        # 2. INSERISCI RIGHE
+        # ======================
+        for r in righe_temp:
+            r["ordine_id"] = ordine_uuid
 
-            for ordine_id, gruppo in df.groupby("ordine_id"):
+        supabase.table("righe_ordine").insert(righe_temp).execute()
 
-                # ======================
-                # RIGHE ORDINE (SAFE)
-                # ======================
-                righe = []
-
-                for _, r in gruppo.iterrows():
-
-                    prezzo = safe_float(r.get("prezzo_unitario", 0))
-                    quantita = int(safe_float(r.get("quantita", 0)))
-
-                    righe.append({
-                        "ordine_id": str(ordine_id),
-                        "sku_prodotto": str(r.get("sku_prodotto", "")),
-                        "quantita": quantita,
-                        "prezzo_unitario": prezzo,
-                        "totale_riga": prezzo * quantita
-                    })
-
-                supabase.table("righe_ordine").insert(righe).execute()
-
-                # ======================
-                # ORDINE HEADER
-                # ======================
-                data_ordine = gruppo.iloc[0].get("data_ordine", "")
-
-                fatturato_totale = sum([x["totale_riga"] for x in righe])
-
-                supabase.table("ordini").upsert({
-                    "numero_ordine": str(ordine_id),
-                    "data_ordine": str(data_ordine),
-                    "marketplace": marketplace,
-                    "mercato": mercato,
-                    "fatturato_totale": float(fatturato_totale)
-                }).execute()
-
-            st.success("IMPORT COMPLETATO")
+        st.success("IMPORT COMPLETATO")
