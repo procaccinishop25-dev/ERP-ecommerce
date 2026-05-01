@@ -2,15 +2,33 @@ import pandas as pd
 from core.supabase_client import supabase
 
 
-def parse_temudate(value):
+# ======================
+# SAFE DATE PARSER
+# ======================
+def parse_date(value):
     if pd.isna(value):
         return None
     try:
-        return pd.to_datetime(value, errors="coerce", utc=True)
+        return pd.to_datetime(value, errors="coerce").isoformat()
     except:
         return None
 
 
+# ======================
+# SAFE NUMBER
+# ======================
+def safe_float(value):
+    if pd.isna(value):
+        return None
+    try:
+        return float(value)
+    except:
+        return None
+
+
+# ======================
+# MAIN IMPORT
+# ======================
 def import_orders(df, config, marketplace, mercato):
 
     c = config["columns"]
@@ -18,63 +36,82 @@ def import_orders(df, config, marketplace, mercato):
     # pulizia colonne Excel
     df.columns = df.columns.str.strip()
 
+    ordine_cache = {}
+
     for _, row in df.iterrows():
 
+        # ======================
+        # ORDER NUMBER
+        # ======================
         order_number = str(row[c["order_id"]])
 
         # ======================
-        # CERCA ORDINE
+        # CHECK ORDINE ESISTENTE
         # ======================
-        order = supabase.table("ordini") \
-            .select("*") \
-            .eq("numero_ordine", order_number) \
-            .execute()
+        if order_number not in ordine_cache:
 
-        # ======================
-        # CREA ORDINE (temporaneo)
-        # ======================
-        if len(order.data) == 0:
+            order = supabase.table("ordini") \
+                .select("*") \
+                .eq("numero_ordine", order_number) \
+                .execute()
 
-            new_order = supabase.table("ordini").insert({
-                "numero_ordine": order_number,
-                "data_ordine": parse_temudate(row[c["date"]]),
-                "marketplace": marketplace,
-                "mercato": mercato,
-                "fatturato_totale": 0  # verrà aggiornato dopo
-            }).execute()
+            if len(order.data) == 0:
 
-            ordine_id = new_order.data[0]["id"]
+                new_order = supabase.table("ordini").insert({
+                    "numero_ordine": order_number,
+                    "data_ordine": parse_date(row[c["date"]]),
+                    "marketplace": marketplace,
+                    "mercato": mercato,
+                    "fatturato_totale": 0
+                }).execute()
+
+                ordine_id = new_order.data[0]["id"]
+
+            else:
+                ordine_id = order.data[0]["id"]
+
+            ordine_cache[order_number] = ordine_id
 
         else:
-            ordine_id = order.data[0]["id"]
+            ordine_id = ordine_cache[order_number]
 
         # ======================
-        # RIGA ORDINE
+        # SAFE VALUES
         # ======================
-        qty = int(row[c["qty"]])
-        price = float(row[c["price"]])
+        qty = safe_float(row[c["qty"]])
+        price = safe_float(row[c["price"]])
+
+        if qty is None or price is None:
+            continue
 
         totale_riga = qty * price
 
+        # ======================
+        # INSERT RIGA ORDINE
+        # ======================
         supabase.table("righe_ordine").insert({
             "ordine_id": ordine_id,
             "sku_prodotto": str(row[c["sku"]]),
-            "quantita": qty,
-            "prezzo_unitario": price,
-            "totale_riga": totale_riga
+            "quantita": int(qty),
+            "prezzo_unitario": float(price),
+            "totale_riga": float(totale_riga)
         }).execute()
 
     # ======================
-    # UPDATE TOTALE ORDINE
+    # UPDATE ORDINI TOTALI
     # ======================
-    rows = supabase.table("righe_ordine") \
-        .select("totale_riga") \
-        .eq("ordine_id", ordine_id) \
-        .execute()
+    orders = supabase.table("ordini").select("id").execute()
 
-    totale = sum(r["totale_riga"] for r in rows.data)
+    for o in orders.data:
 
-    supabase.table("ordini") \
-        .update({"fatturato_totale": totale}) \
-        .eq("id", ordine_id) \
-        .execute()
+        righe = supabase.table("righe_ordine") \
+            .select("totale_riga") \
+            .eq("ordine_id", o["id"]) \
+            .execute()
+
+        totale = sum(r["totale_riga"] for r in righe.data)
+
+        supabase.table("ordini") \
+            .update({"fatturato_totale": totale}) \
+            .eq("id", o["id"]) \
+            .execute()
