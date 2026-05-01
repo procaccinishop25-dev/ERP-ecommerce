@@ -70,7 +70,7 @@ if not df_stock.empty:
 
     st.dataframe(df_stock, use_container_width=True)
 
-    # 🚨 ALERT
+    # 🚨 ALERT STOCK
     st.subheader("🚨 Prodotti a rischio esaurimento")
 
     rischio = df_stock[df_stock["Stock attuale"] < 5]
@@ -79,6 +79,18 @@ if not df_stock.empty:
         st.success("✅ Nessun prodotto a rischio")
     else:
         st.dataframe(rischio, use_container_width=True)
+
+    # 🧠 DECISION ENGINE (NUOVO)
+    st.subheader("🚦 Decisioni automatiche")
+
+    urgenti = df_stock[df_stock["Stock attuale"] < 5]
+
+    if urgenti.empty:
+        st.success("🟢 Nessun riordino necessario")
+    else:
+        st.warning("🔴 Prodotti da riordinare")
+        st.dataframe(urgenti)
+
 else:
     st.info("📦 Nessun dato magazzino disponibile")
 
