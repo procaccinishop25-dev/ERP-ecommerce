@@ -6,10 +6,10 @@ def parse(df):
         "ID Ordine": "ordine_id",
         "Codice SKU": "sku_prodotto",
         "quantità acquistata": "quantita",
-        "prezzo base della merce": "prezzo_unitario"
+        "prezzo base della merce": "prezzo_unitario",
+        "Data Ordine": "data_ordine"
     })
 
-    # calcolo totale riga
     df["totale_riga"] = df["prezzo_unitario"] * df["quantita"]
 
     return df
