@@ -1,4 +1,4 @@
-def parse_temu(df):
+def parse(df):
 
     df = df.rename(columns={
         "ID Ordine": "ordine_id",
