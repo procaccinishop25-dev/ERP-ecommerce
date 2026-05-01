@@ -1,30 +1,32 @@
 import streamlit as st
 import pandas as pd
+import importlib
 
 from supabase_client import supabase
-from parsers import parse_temu
 
-st.title("ERP IMPORT ORDINI")
 
-# 1. scelta marketplace
-marketplace = st.selectbox("Marketplace", ["Temu"])
+def load_parser(source):
+    return importlib.import_module(f"parsers.{source}")
+
+
+st.title("ERP IMPORT")
+
+# marketplace dinamico
+source = st.selectbox("Marketplace", ["temu", "amazon", "shopify"])
 mercato = st.selectbox("Mercato", ["IT", "DE", "FR"])
 
-# 2. upload file
-file = st.file_uploader("Carica file Excel")
+file = st.file_uploader("Carica Excel")
 
 if file:
 
     df = pd.read_excel(file)
 
-    # 3. parsing
-    if marketplace == "Temu":
-        df = parse_temu(df)
+    parser = load_parser(source)
+    df = parser.parse(df)
 
-    st.write("Preview dati:", df.head())
+    st.write(df.head())
 
-    # 4. bottone import
-    if st.button("IMPORTA ORDINI"):
+    if st.button("IMPORTA"):
 
         for ordine_id, gruppo in df.groupby("ordine_id"):
 
@@ -50,13 +52,11 @@ if file:
                     "totale_riga": totale
                 })
 
-            # inserisci righe
             supabase.table("righe_ordine").insert(righe).execute()
 
-            # ordine (summary)
             supabase.table("ordini").upsert({
                 "id": ordine_id,
-                "marketplace": marketplace,
+                "marketplace": source,
                 "mercato": mercato
             }).execute()
 
