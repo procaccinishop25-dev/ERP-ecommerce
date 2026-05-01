@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client
 
+# ⚙️ CONFIGURAZIONE
 st.set_page_config(page_title="ERP Dashboard", layout="wide")
 
 st.title("📊 Dashboard ERP")
@@ -24,17 +25,15 @@ if df_orders.empty and df_stock.empty:
     st.stop()
 
 # 🧹 RIMOZIONE COLONNE TECNICHE
-if "id" in df_orders.columns:
-    df_orders = df_orders.drop(columns=["id"])
-
-if "id" in df_stock.columns:
-    df_stock = df_stock.drop(columns=["id"])
+for df in [df_orders, df_stock]:
+    if "id" in df.columns:
+        df.drop(columns=["id"], inplace=True)
 
 # 📊 KPI PRINCIPALI
 col1, col2, col3 = st.columns(3)
 
 col1.metric("📦 Ordini", len(df_orders))
-col2.metric("🏷️ Prodotti in magazzino", len(df_stock))
+col2.metric("🏷️ Prodotti", len(df_stock))
 
 fatturato = df_orders["total_amount"].sum() if "total_amount" in df_orders.columns else 0
 col3.metric("💰 Fatturato totale", f"€ {fatturato}")
@@ -45,15 +44,14 @@ st.divider()
 st.subheader("📦 Stato Magazzino")
 
 if not df_stock.empty:
-    df_stock["stato"] = df_stock.apply(
-        lambda x: "🔴 BASSO" if x.get("stock_current", 0) < 5 else "🟢 OK",
-        axis=1
+    df_stock["stato"] = df_stock["stock_current"].apply(
+        lambda x: "🔴 BASSO" if x < 5 else "🟢 OK"
     )
 
     st.dataframe(df_stock, use_container_width=True)
 
     # 🚨 ALERT
-    st.subheader("🚨 Prodotti a rischio")
+    st.subheader("🚨 Prodotti a rischio esaurimento")
 
     rischio = df_stock[df_stock["stock_current"] < 5]
 
@@ -62,12 +60,13 @@ if not df_stock.empty:
     else:
         st.dataframe(rischio, use_container_width=True)
 else:
-    st.info("Nessun dato magazzino disponibile")
+    st.info("📦 Nessun dato magazzino disponibile")
 
-# 📊 ORDINI
+# 📦 ORDINI
 st.subheader("📦 Ultimi ordini")
 
 if not df_orders.empty:
-    st.dataframe(df_orders.sort_values(by="order_date", ascending=False), use_container_width=True)
+    df_orders = df_orders.sort_values(by="order_date", ascending=False)
+    st.dataframe(df_orders, use_container_width=True)
 else:
-    st.info("Nessun ordine presente")
+    st.info("📦 Nessun ordine presente")
