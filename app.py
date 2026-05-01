@@ -6,7 +6,9 @@ from supabase_client import supabase
 
 st.set_page_config(page_title="ERP Ecommerce", layout="wide")
 
+# ======================
 # SIDEBAR
+# ======================
 menu = st.sidebar.selectbox(
     "Menu",
     ["Dashboard", "Ordini", "Import"]
@@ -73,21 +75,28 @@ if menu == "Import":
 
                 for _, r in gruppo.iterrows():
 
+                    prezzo_base = r.get("prezzo_base", 0)
+                    spedizione = r.get("spedizione", 0)
+                    imposta_articolo = r.get("imposta_articolo", 0)
+                    imposta_spedizione = r.get("imposta_spedizione", 0)
+
                     totale = (
-                        r["prezzo_base"] +
-                        r["spedizione"] +
-                        r["imposta_articolo"] +
-                        r["imposta_spedizione"]
+                        prezzo_base +
+                        spedizione +
+                        imposta_articolo +
+                        imposta_spedizione
                     )
 
                     righe.append({
                         "ordine_id": ordine_id,
-                        "sku": r["sku"],
-                        "quantita": r["quantita"],
-                        "prezzo_base": r["prezzo_base"],
-                        "spedizione": r["spedizione"],
-                        "imposta_articolo": r["imposta_articolo"],
-                        "imposta_spedizione": r["imposta_spedizione"],
+                        "sku": r.get("sku"),
+                        "quantita": r.get("quantita"),
+
+                        "prezzo_base": prezzo_base,
+                        "spedizione": spedizione,
+                        "imposta_articolo": imposta_articolo,
+                        "imposta_spedizione": imposta_spedizione,
+
                         "totale_riga": totale
                     })
 
