@@ -89,15 +89,16 @@ if menu == "Import":
 
                     righe.append({
                         "ordine_id": ordine_id,
-                        "sku": r.get("sku"),
-                        "quantita": r.get("quantita"),
+                        "sku_prodotto": str(r.get("sku", "")),
+                        "quantita": int(r.get("quantita", 0) or 0),
 
-                        "prezzo_base": prezzo_base,
-                        "spedizione": spedizione,
-                        "imposta_articolo": imposta_articolo,
-                        "imposta_spedizione": imposta_spedizione,
+                        "prezzo_unitario": float(
+                            r.get("prezzo_base", 0) or 0
+                        ),
 
-                        "totale_riga": totale
+                        "totale_riga": float(
+                            r.get("prezzo_base", 0) or 0
+                        )
                     })
 
                 supabase.table("righe_ordine").insert(righe).execute()
