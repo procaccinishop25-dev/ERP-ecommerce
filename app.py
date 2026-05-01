@@ -24,6 +24,12 @@ def safe_str(x):
     return str(x)
 
 
+def safe_date(x):
+    if x is None or pd.isna(x) or str(x) == "":
+        return pd.Timestamp.now().date()  # 👈 FIX CRITICO
+    return str(x).split(" ")[0]
+
+
 # ======================
 # MENU
 # ======================
@@ -106,27 +112,22 @@ if menu == "Import":
                 fatturato_totale = sum([x["totale_riga"] for x in righe_temp])
 
                 # ======================
-                # ORDINE PAYLOAD
+                # ORDINE PAYLOAD (FIX DEFINITIVO DATA)
                 # ======================
                 ordine_payload = {
                     "numero_ordine": safe_str(df.iloc[0].get("ordine_id")),
                     "marketplace": safe_str(marketplace),
                     "mercato": safe_str(mercato),
+                    "data_ordine": safe_date(df.iloc[0].get("data_ordine")),
                     "fatturato_totale": float(fatturato_totale)
                 }
 
                 st.write("DEBUG ORDINE:", ordine_payload)
 
                 # ======================
-                # INSERT ORDINE (CON ERROR HANDLING)
+                # INSERT ORDINE
                 # ======================
-                try:
-                    ordine = supabase.table("ordini").insert(ordine_payload).execute()
-                except Exception as e:
-                    st.error("❌ ERRORE SUPABASE ORDINE:")
-                    st.exception(e)
-                    st.stop()
-
+                ordine = supabase.table("ordini").insert(ordine_payload).execute()
                 ordine_uuid = ordine.data[0]["id"]
 
                 # ======================
@@ -148,5 +149,5 @@ if menu == "Import":
                 st.success("IMPORT COMPLETATO 🚀")
 
             except Exception as e:
-                st.error("❌ ERRORE GENERALE:")
+                st.error("❌ ERRORE COMPLETO:")
                 st.exception(e)
