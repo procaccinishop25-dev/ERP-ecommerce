@@ -5,8 +5,7 @@ MARKETPLACES = {
             "date": "data di acquisto",
             "sku": "Codice SKU",
             "qty": "quantità acquistata",
-            "price": "prezzo base della merce",
-            "total": "fatturato totale ordine"
+            "price": "prezzo base della merce"
         }
     }
 }
