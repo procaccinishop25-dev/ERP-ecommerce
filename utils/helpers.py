@@ -1,10 +1,4 @@
-def parse_euro(value):
-    if value is None:
+def parse_euro(x):
+    if not x:
         return 0
-    return float(
-        str(value)
-        .replace("€", "")
-        .replace(".", "")
-        .replace(",", ".")
-        .strip()
-    )
+    return float(str(x).replace("€","").replace(",","."))
