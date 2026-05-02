@@ -9,6 +9,9 @@ def parse_temu(file):
 
     df = pd.read_excel(file)
 
+    # 🔥 FIX IMPORTANTE: pulisce colonne
+    df.columns = df.columns.str.strip()
+
     orders = {}
 
     for _, row in df.iterrows():
@@ -18,21 +21,21 @@ def parse_temu(file):
         if order_id not in orders:
             orders[order_id] = {
                 "order_id": order_id,
-                "country": row["Paese di spedizione"],
-                "date": row["data di acquisto"],
+                "country": row.get("Paese di spedizione", ""),
+                "date": row.get("data di acquisto", None),
                 "items": []
             }
 
         revenue = (
-            euro(row["Totale prezzo base"]) +
-            euro(row["Totale spedizione (imposte escluse)"]) +
-            euro(row["Imposta sull'articolo"]) +
-            euro(row["Imposta sulla spedizione"])
+            euro(row.get("Totale prezzo base", 0)) +
+            euro(row.get("Totale spedizione (imposte escluse)", 0)) +
+            euro(row.get("Imposta sull'articolo", 0)) +
+            euro(row.get("Imposta sulla spedizione", 0))
         )
 
         orders[order_id]["items"].append({
-            "sku": row["Codice SKU"],
-            "qty": int(row["quantità acquistata"]),
+            "sku": row.get("Codice SKU", ""),
+            "qty": int(row.get("quantità acquistata", 0) or 0),
             "revenue": revenue
         })
 
