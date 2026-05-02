@@ -14,7 +14,7 @@ def save_orders(orders):
             "order_id": order["order_id"],
             "marketplace": "temu",
             "country": order["country"],
-            "order_date": order["date"]
+            "order_date": str(order["date"]) if order["date"] is not None else None
         }).execute()
 
         order_db_id = res.data[0]["id"]
