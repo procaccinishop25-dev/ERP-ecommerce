@@ -1,6 +1,9 @@
 import pandas as pd
-from utils.helpers import parse_euro
-from core.config import TEMU_COLUMNS
+
+def euro(x):
+    if pd.isna(x):
+        return 0
+    return float(str(x).replace("€","").replace(",",".").strip())
 
 def parse_temu(file):
 
@@ -10,27 +13,26 @@ def parse_temu(file):
 
     for _, row in df.iterrows():
 
-        order_id = row[TEMU_COLUMNS["order_id"]]
+        order_id = row["ID Ordine"]
 
         if order_id not in orders:
             orders[order_id] = {
                 "order_id": order_id,
-                "date": row[TEMU_COLUMNS["date"]],
-                "country": row[TEMU_COLUMNS["country"]],
+                "country": row["Paese di spedizione"],
+                "date": row["data di acquisto"],
                 "items": []
             }
 
-        product = parse_euro(row[TEMU_COLUMNS["product_revenue"]])
-        shipping = parse_euro(row[TEMU_COLUMNS["shipping"]])
-        tax_item = parse_euro(row[TEMU_COLUMNS["tax_item"]])
-        tax_shipping = parse_euro(row[TEMU_COLUMNS["tax_shipping"]])
-
-        revenue = product + shipping + tax_item + tax_shipping
+        revenue = (
+            euro(row["Totale prezzo base"]) +
+            euro(row["Totale spedizione (imposte escluse)"]) +
+            euro(row["Imposta sull'articolo"]) +
+            euro(row["Imposta sulla spedizione"])
+        )
 
         orders[order_id]["items"].append({
-            "sku": row[TEMU_COLUMNS["sku"]],
-            "name": row[TEMU_COLUMNS["name"]],
-            "qty": int(row[TEMU_COLUMNS["qty"]]),
+            "sku": row["Codice SKU"],
+            "qty": int(row["quantità acquistata"]),
             "revenue": revenue
         })
 
