@@ -1,12 +1,10 @@
-from core.temu_parser import parse_temu
-from core.amazon_parser import parse_amazon
+import importlib
 
 def parse_file(file, marketplace):
 
-    if marketplace == "temu":
-        return parse_temu(file)
+    try:
+        module = importlib.import_module(f"core.parsers.{marketplace}")
+    except ModuleNotFoundError:
+        raise Exception(f"Parser per {marketplace} non esiste")
 
-    if marketplace == "amazon":
-        return parse_amazon(file)
-
-    raise Exception("Marketplace non supportato")
+    return module.parse(file)
