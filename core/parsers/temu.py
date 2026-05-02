@@ -12,11 +12,11 @@ def parse(file):
 
         if order_id not in orders:
             orders[order_id] = {
-                "order_id": order_id,
-                "country": row["Paese di spedizione"],
-                "items": []
+               "order_id": order_id,
+               "country": row["Paese di spedizione"],
+               "date": row["data di acquisto"],
+               "items": []
             }
-
         orders[order_id]["items"].append({
             "sku": row["Codice SKU"],
             "qty": int(row["quantità acquistata"]),
