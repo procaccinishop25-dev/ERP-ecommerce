@@ -1,37 +1,18 @@
 import streamlit as st
-import pandas as pd
-from supabase import create_client
+from core.temu_parser import parse_temu
+from core.importer import save_orders
 
-from adapters.temu import transform as temu_transform
-from core.importer import import_to_supabase
+st.title("📦 ERP Temu Import")
 
-# 🔐 secrets Streamlit Cloud
-url = st.secrets["SUPABASE_URL"]
-key = st.secrets["SUPABASE_KEY"]
-
-supabase = create_client(url, key)
-
-st.title("Import Ordini Universale")
-
-marketplace = st.selectbox("Marketplace", ["TEMU"])
-mercato = st.text_input("Mercato", "IT")
-
-file = st.file_uploader("Carica Excel")
+file = st.file_uploader("Carica Excel Temu")
 
 if file:
 
-    df = pd.read_excel(file)
+    orders = parse_temu(file)
 
-    st.write("📌 Colonne rilevate:")
-    st.write(list(df.columns))
+    st.success(f"Ordini trovati: {len(orders)}")
 
-    st.write("Preview:")
-    st.dataframe(df.head())
+    if st.button("🚀 Importa su Supabase"):
 
-    if st.button("IMPORTA"):
-
-        data = temu_transform(df, marketplace, mercato)
-
-        order_id = import_to_supabase(data, supabase)
-
-        st.success(f"Import completato: {order_id}")
+        save_orders(orders)
+        st.success("Import completato")
