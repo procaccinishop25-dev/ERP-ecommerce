@@ -126,7 +126,6 @@ if orders_file and comm_file:
 
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
-    # ✅ ORA RESTA DATETIME
     df["Data ordine"] = pd.to_datetime(
         df["purchase-date"],
         errors="coerce",
@@ -181,7 +180,6 @@ if temu_file:
 
     t = pd.DataFrame()
 
-    # ✅ RESTA DATETIME
     t["Data ordine"] = temu[date_col].apply(parse_temu_date)
 
     t["Marketplace"] = "Temu"
@@ -230,10 +228,16 @@ if frames:
 
     final_df = pd.concat(frames, ignore_index=True)
 
-    # ✅ ORDINAMENTO CORRETTO
+    # 🔥 FIX DEFINITIVO: uniforma i tipi (evita TypeError)
+    final_df["Data ordine"] = pd.to_datetime(
+        final_df["Data ordine"],
+        errors="coerce"
+    )
+
+    # ✅ ordinamento corretto
     final_df = final_df.sort_values("Data ordine", ascending=True)
 
-    # ✅ CONVERSIONE SOLO ALLA FINE (per visualizzazione)
+    # ✅ formato finale per output
     final_df["Data ordine"] = final_df["Data ordine"].dt.strftime("%d/%m/%Y")
 
     st.success("Elaborazione completata!")
