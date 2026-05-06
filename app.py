@@ -25,7 +25,7 @@ product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 
 
 # -------------------------
-# FILE UPLOAD
+# UPLOAD FILE
 # -------------------------
 amazon_orders = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
 amazon_comm = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
@@ -33,7 +33,7 @@ temu_file = st.file_uploader("📄 Temu FILE", type=["csv", "txt"])
 
 
 # -------------------------
-# AMAZON FUNCTIONS
+# AMAZON
 # -------------------------
 def clean_marketplace(val):
     if pd.isna(val):
@@ -58,7 +58,7 @@ def map_sku(original_sku):
 
 
 # -------------------------
-# TEMU FUNCTIONS
+# TEMU
 # -------------------------
 def parse_temu_date(date_str):
     dt = pd.to_datetime(date_str, errors="coerce", dayfirst=True)
@@ -153,7 +153,7 @@ if amazon_orders and amazon_comm:
 
 
 # -------------------------
-# TEMU PROCESS (FIX ROBUSTO)
+# TEMU PROCESS (FIX DEFINITIVO KEY ERROR)
 # -------------------------
 temu_df = None
 
@@ -161,7 +161,7 @@ if temu_file:
 
     temu = pd.read_csv(temu_file, sep="\t")
 
-    # FIX CRITICO: pulizia colonne
+    # pulizia colonne (CRITICO)
     temu.columns = (
         temu.columns
         .str.replace("\ufeff", "", regex=True)
@@ -171,8 +171,10 @@ if temu_file:
 
     t = pd.DataFrame()
 
-    # data sicura
-    t["Data ordine"] = temu["data di acquisto"].apply(parse_temu_date)
+    # FIX ROBUSTO: trova colonna senza errori
+    date_col = [c for c in temu.columns if "acquisto" in c][0]
+
+    t["Data ordine"] = temu[date_col].apply(parse_temu_date)
 
     t["Marketplace"] = "Temu"
 
@@ -212,7 +214,6 @@ if frames:
 
     final_df = pd.concat(frames, ignore_index=True)
 
-    # ordinamento globale
     final_df = final_df.sort_values("Data ordine_raw", ascending=True)
 
     final_df = final_df.drop(columns=["Data ordine_raw"])
