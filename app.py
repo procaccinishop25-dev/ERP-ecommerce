@@ -31,8 +31,8 @@ product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 orders_file = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
 comm_file = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
 temu_file = st.file_uploader("📄 TEMU FILE", type=["csv", "txt", "xlsx"])
-ebay_orders_file = st.file_uploader("📄 eBay ORDINI", type=["csv", "txt", "xlsx"])
-ebay_fee_file = st.file_uploader("📄 eBay COMMISSIONI", type=["csv", "txt", "xlsx"])
+ebay_orders_file = st.file_uploader("📄 EBAY ORDINI", type=["csv", "txt", "xlsx"])
+ebay_fee_file = st.file_uploader("📄 EBAY COMMISSIONI", type=["csv", "txt", "xlsx"])
 
 # -------------------------
 # UTILS
@@ -55,7 +55,7 @@ def find_col(df, keyword):
 
 def to_float(x):
     try:
-        return float(str(x).replace("€", "").replace(",", ".").replace(" ", "").strip())
+        return float(str(x).replace("€", "").replace(",", ".").strip())
     except:
         return 0.0
 
@@ -71,7 +71,7 @@ def map_country(val):
     }.get(val, val[:2].upper())
 
 # -------------------------
-# TEMU DATE FIX
+# DATE PARSERS
 # -------------------------
 def parse_temu_date(x):
     if pd.isna(x):
@@ -81,14 +81,31 @@ def parse_temu_date(x):
     x = re.sub(r"CEST.*", "", x).strip()
 
     mesi = {
-        "gen": "Jan","feb": "Feb","mar": "Mar","apr": "Apr",
-        "mag": "May","giu": "Jun","lug": "Jul","ago": "Aug",
-        "set": "Sep","ott": "Oct","nov": "Nov","dic": "Dec"
+        "gen":"Jan","feb":"Feb","mar":"Mar","apr":"Apr",
+        "mag":"May","giu":"Jun","lug":"Jul","ago":"Aug",
+        "set":"Sep","ott":"Oct","nov":"Nov","dic":"Dec"
     }
 
     for it, en in mesi.items():
-        if f" {it} " in x:
-            x = x.replace(it, en)
+        x = x.replace(it, en)
+
+    return pd.to_datetime(x, errors="coerce")
+
+
+def parse_ebay_date(x):
+    if pd.isna(x):
+        return pd.NaT
+
+    x = str(x).lower()
+
+    mesi = {
+        "gen":"Jan","feb":"Feb","mar":"Mar","apr":"Apr",
+        "mag":"May","giu":"Jun","lug":"Jul","ago":"Aug",
+        "set":"Sep","ott":"Oct","nov":"Nov","dic":"Dec"
+    }
+
+    for it, en in mesi.items():
+        x = x.replace(f" {it} ", f" {en} ")
 
     return pd.to_datetime(x, errors="coerce")
 
@@ -119,11 +136,11 @@ if orders_file and comm_file:
         "Data ordine","Marketplace","ship-country","amazon-order-id",
         "Prodotto","quantity","item-price","fee"
     ]].rename(columns={
-        "ship-country": "Paese (Mercato)",
-        "amazon-order-id": "Order ID (Codice Market)",
-        "quantity": "Quantità ordinata",
-        "item-price": "Fatturato (Lordo)",
-        "fee": "Fee (€)"
+        "ship-country":"Paese (Mercato)",
+        "amazon-order-id":"Order ID (Codice Market)",
+        "quantity":"Quantità ordinata",
+        "item-price":"Fatturato (Lordo)",
+        "fee":"Fee (€)"
     })
 
 # -------------------------
@@ -138,7 +155,7 @@ if temu_file:
     else:
         temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
 
-    temu.columns = temu.columns.str.replace("\ufeff", "").str.strip()
+    temu.columns = temu.columns.str.strip()
 
     date_col = find_col(temu, "acquisto")
     country_col = find_col(temu, "paese")
@@ -148,11 +165,7 @@ if temu_file:
 
     t = pd.DataFrame()
 
-    t["Data ordine"] = pd.to_datetime(
-        temu[date_col].apply(parse_temu_date),
-        errors="coerce"
-    ).dt.strftime("%d/%m/%Y")
-
+    t["Data ordine"] = temu[date_col].apply(parse_temu_date).dt.strftime("%d/%m/%Y")
     t["Marketplace"] = "Temu"
     t["Paese (Mercato)"] = temu[country_col].apply(map_country)
     t["Order ID (Codice Market)"] = temu[order_col]
@@ -163,7 +176,6 @@ if temu_file:
         return sku if pd.notna(sku) and str(sku).strip() != "" else name
 
     t["Prodotto"] = temu.apply(get_product, axis=1)
-
     t["Quantità ordinata"] = pd.to_numeric(temu[qty_col], errors="coerce").fillna(0)
 
     def safe(col):
@@ -181,26 +193,19 @@ if temu_file:
     temu_df = t
 
 # -------------------------
-# EBAY (FIX DEFINITIVO STABILE)
+# EBAY (FIX DEFINITIVO + ADS INCLUSI)
 # -------------------------
 ebay_df = None
 
 if ebay_orders_file and ebay_fee_file:
 
-    if ebay_orders_file.name.endswith(".xlsx"):
-        ebay_orders = pd.read_excel(ebay_orders_file)
-    else:
-        ebay_orders = pd.read_csv(ebay_orders_file, sep="\t")
-
-    if ebay_fee_file.name.endswith(".xlsx"):
-        ebay_fee = pd.read_excel(ebay_fee_file)
-    else:
-        ebay_fee = pd.read_csv(ebay_fee_file, sep=",")
+    ebay_orders = pd.read_excel(ebay_orders_file)
+    ebay_fee = pd.read_excel(ebay_fee_file)
 
     ebay_orders.columns = ebay_orders.columns.str.strip()
     ebay_fee.columns = ebay_fee.columns.str.strip()
 
-    # 🔥 SOMMA TUTTE LE FEES (anche ADV, anche righe duplicate)
+    # somma TUTTE le fee negative (incluse ADS)
     def calc_fee(row):
         total = 0.0
         for v in row:
@@ -213,16 +218,13 @@ if ebay_orders_file and ebay_fee_file:
         return total
 
     ebay_fee["fee_totale"] = ebay_fee.apply(calc_fee, axis=1)
-
     ebay_fee = ebay_fee.groupby("Numero ordine", as_index=False)["fee_totale"].sum()
 
     df = ebay_orders.merge(ebay_fee, on="Numero ordine", how="left")
 
     e = pd.DataFrame()
 
-    e["Data ordine"] = pd.to_datetime(df["Data vendita"], errors="coerce")\
-        .dt.strftime("%d/%m/%Y")
-
+    e["Data ordine"] = parse_ebay_date(df["Data vendita"]).dt.strftime("%d/%m/%Y")
     e["Marketplace"] = "eBay"
     e["Paese (Mercato)"] = df["Paese dell'acquirente"].apply(map_country)
     e["Order ID (Codice Market)"] = df["Numero ordine"]
@@ -230,12 +232,9 @@ if ebay_orders_file and ebay_fee_file:
     def get_product_ebay(row):
         sku = row.get("Etichetta personalizzata")
         titolo = row.get("Titolo")
-        if pd.notna(sku) and str(sku).strip() != "":
-            return map_sku(sku)
-        return titolo
+        return map_sku(sku) if pd.notna(sku) and str(sku).strip() != "" else titolo
 
     e["Prodotto"] = df.apply(get_product_ebay, axis=1)
-
     e["Quantità ordinata"] = pd.to_numeric(df["Quantità"], errors="coerce").fillna(0)
     e["Fatturato (Lordo)"] = df["Costo totale"].apply(to_float)
     e["Fee (€)"] = df["fee_totale"].fillna(0)
