@@ -15,7 +15,7 @@ st.title("📦 Multi Marketplace Processor")
 
 
 # -------------------------
-# PRODOTTI
+# PRODOTTI SUPABASE
 # -------------------------
 @st.cache_data
 def load_products():
@@ -27,7 +27,7 @@ product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 
 
 # -------------------------
-# UPLOAD
+# UPLOAD FILE
 # -------------------------
 orders_file = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
 comm_file = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
@@ -51,28 +51,26 @@ def clean_marketplace(val):
 
 
 # -------------------------
-# TEMU FIX FUNZIONI
+# TEMU UTILS (ROBUSTO)
 # -------------------------
+def find_col(df, keyword):
+    for c in df.columns:
+        if keyword.lower() in c.lower():
+            return c
+    return None
+
+
 def to_float(x):
     try:
-        return float(str(x).replace(",", "."))
+        return float(str(x).replace(",", ".").replace("€", "").strip())
     except:
         return 0.0
-
-
-def temu_gross(row):
-    return (
-        to_float(row["Totale prezzo base dopo lo sconto"])
-        + to_float(row["Totale spedizione (imposte escluse)"])
-        + to_float(row["Imposta sull'articolo"])
-        + to_float(row["Imposta sulla spedizione"])
-    )
 
 
 def map_country(val):
     if pd.isna(val):
         return ""
-    val = str(val).strip().lower()
+    val = str(val).lower()
     return {
         "italy": "IT",
         "germany": "DE",
@@ -137,7 +135,7 @@ if temu_file:
     else:
         temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
 
-    # 🔥 FIX COLONNE
+    # pulizia colonne
     temu.columns = (
         temu.columns
         .str.replace("\ufeff", "", regex=True)
@@ -145,13 +143,22 @@ if temu_file:
         .str.strip()
     )
 
+    # -------------------------
+    # TROVA COLONNE DINAMICHE
+    # -------------------------
+    date_col = find_col(temu, "acquisto")
+    country_col = find_col(temu, "paese")
+    order_col = find_col(temu, "id ordine")
+    sku_col = find_col(temu, "codice sku")
+    qty_col = find_col(temu, "quantità")
+
     t = pd.DataFrame()
 
     # -------------------------
-    # DATA ORDINE (FIX DEFINITIVO)
+    # DATA
     # -------------------------
     t["Data ordine"] = pd.to_datetime(
-        temu["data di acquisto"],
+        temu[date_col],
         errors="coerce"
     ).dt.strftime("%d/%m/%Y")
 
@@ -163,19 +170,19 @@ if temu_file:
     # -------------------------
     # PAESE
     # -------------------------
-    t["Paese (Mercato)"] = temu["Paese di spedizione"].apply(map_country)
+    t["Paese (Mercato)"] = temu[country_col].apply(map_country)
 
     # -------------------------
     # ORDER ID
     # -------------------------
-    t["Order ID (Codice Market)"] = temu["ID Ordine"]
+    t["Order ID (Codice Market)"] = temu[order_col]
 
     # -------------------------
     # PRODOTTO
     # -------------------------
     def get_product(row):
-        sku = row["Codice SKU"]
-        name = row["nome dell'articolo"]
+        sku = row.get(sku_col)
+        name = row.get("nome dell'articolo")
 
         if pd.notna(sku) and str(sku).strip() != "":
             return sku
@@ -187,14 +194,19 @@ if temu_file:
     # QUANTITÀ
     # -------------------------
     t["Quantità ordinata"] = pd.to_numeric(
-        temu["quantità acquistata"],
+        temu[qty_col],
         errors="coerce"
     ).fillna(0)
 
     # -------------------------
-    # FATTURATO (FIX REALE)
+    # FATTURATO (ROBUSTO)
     # -------------------------
-    t["Fatturato (Lordo)"] = temu.apply(temu_gross, axis=1)
+    t["Fatturato (Lordo)"] = (
+        temu["Totale prezzo base dopo lo sconto"].apply(to_float)
+        + temu["Totale spedizione (imposte escluse)"].apply(to_float)
+        + temu["Imposta sull'articolo"].apply(to_float)
+        + temu["Imposta sulla spedizione"].apply(to_float)
+    )
 
     # -------------------------
     # FEE
@@ -218,7 +230,6 @@ if temu_df is not None:
 if frames:
 
     final_df = pd.concat(frames, ignore_index=True)
-
     final_df = final_df.sort_values("Data ordine", ascending=True)
 
     st.success("Elaborazione completata!")
