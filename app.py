@@ -4,9 +4,9 @@ import re
 from supabase import create_client
 from io import BytesIO
 
-# -------------------------
+# =========================================================
 # SUPABASE
-# -------------------------
+# =========================================================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
@@ -14,9 +14,9 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.title("📦 Multi Marketplace Processor")
 
-# -------------------------
-# PRODOTTI
-# -------------------------
+# =========================================================
+# PRODOTTI SUPABASE
+# =========================================================
 @st.cache_data
 def load_products():
     res = supabase.table("prodotti").select("codice, nome_prodotto").execute()
@@ -25,18 +25,18 @@ def load_products():
 products_df = load_products()
 product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 
-# -------------------------
+# =========================================================
 # UPLOAD FILE
-# -------------------------
+# =========================================================
 orders_file = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
 comm_file = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
 temu_file = st.file_uploader("📄 TEMU FILE", type=["csv", "txt", "xlsx"])
-ebay_orders_file = st.file_uploader("📄 EBAY ORDINI", type=["xlsx"])
-ebay_fee_file = st.file_uploader("📄 EBAY COMMISSIONI", type=["xlsx"])
+ebay_orders_file = st.file_uploader("📄 EBAY ORDINI", type=["csv", "txt", "xlsx"])
+ebay_comm_file = st.file_uploader("📄 EBAY COMMISSIONI", type=["csv", "txt", "xlsx"])
 
-# -------------------------
+# =========================================================
 # UTILS
-# -------------------------
+# =========================================================
 def extract_code(sku):
     return str(sku).split("_")[1] if "_" in str(sku) else sku
 
@@ -47,17 +47,17 @@ def map_sku(original_sku):
 def clean_marketplace(val):
     return str(val).split(".")[0] if pd.notna(val) else val
 
+def to_float(x):
+    try:
+        return float(str(x).replace(",", ".").replace("€", "").replace("--", "0").strip())
+    except:
+        return 0.0
+
 def find_col(df, keyword):
     for c in df.columns:
         if keyword.lower() in c.lower():
             return c
     return None
-
-def to_float(x):
-    try:
-        return float(str(x).replace("€", "").replace(",", ".").strip())
-    except:
-        return 0.0
 
 def map_country(val):
     if pd.isna(val):
@@ -70,9 +70,9 @@ def map_country(val):
         "spain": "ES"
     }.get(val, val[:2].upper())
 
-# -------------------------
-# DATE PARSERS
-# -------------------------
+# =========================================================
+# TEMU DATE
+# =========================================================
 def parse_temu_date(x):
     if pd.isna(x):
         return pd.NaT
@@ -81,37 +81,19 @@ def parse_temu_date(x):
     x = re.sub(r"CEST.*", "", x).strip()
 
     mesi = {
-        "gen":"Jan","feb":"Feb","mar":"Mar","apr":"Apr",
-        "mag":"May","giu":"Jun","lug":"Jul","ago":"Aug",
-        "set":"Sep","ott":"Oct","nov":"Nov","dic":"Dec"
+        "gen": "Jan","feb": "Feb","mar": "Mar","apr": "Apr",
+        "mag": "May","giu": "Jun","lug": "Jul","ago": "Aug",
+        "set": "Sep","ott": "Oct","nov": "Nov","dic": "Dec"
     }
 
     for it, en in mesi.items():
-        x = x.replace(it, en)
+        x = re.sub(rf"\b{it}\b", en, x)
 
     return pd.to_datetime(x, errors="coerce")
 
-
-def parse_ebay_date(x):
-    if pd.isna(x):
-        return pd.NaT
-
-    x = str(x).lower()
-
-    mesi = {
-        "gen":"Jan","feb":"Feb","mar":"Mar","apr":"Apr",
-        "mag":"May","giu":"Jun","lug":"Jul","ago":"Aug",
-        "set":"Sep","ott":"Oct","nov":"Nov","dic":"Dec"
-    }
-
-    for it, en in mesi.items():
-        x = x.replace(f" {it} ", f" {en} ")
-
-    return pd.to_datetime(x, errors="coerce")
-
-# -------------------------
+# =========================================================
 # AMAZON
-# -------------------------
+# =========================================================
 amazon_df = None
 
 if orders_file and comm_file:
@@ -120,42 +102,50 @@ if orders_file and comm_file:
     comm = pd.read_csv(comm_file, sep=",")
 
     comm = comm.rename(columns={
-        "Numero di ordine": "amazon-order-id",
-        "Commissioni Amazon": "fee"
+        "Numero di ordine": "amazon-order-id"
     })
 
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
-    df["Data ordine"] = pd.to_datetime(df["purchase-date"], errors="coerce", utc=True)\
-        .dt.strftime("%d/%m/%Y")
+    df["Data ordine"] = pd.to_datetime(
+        df["purchase-date"], errors="coerce", utc=True
+    ).dt.strftime("%d/%m/%Y")
 
     df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
     df["Prodotto"] = df["sku"].apply(map_sku)
 
     amazon_df = df[[
-        "Data ordine","Marketplace","ship-country","amazon-order-id",
-        "Prodotto","quantity","item-price","fee"
+        "Data ordine",
+        "Marketplace",
+        "ship-country",
+        "amazon-order-id",
+        "Prodotto",
+        "quantity",
+        "item-price",
+        "Commissioni Amazon"
     ]].rename(columns={
-        "ship-country":"Paese (Mercato)",
-        "amazon-order-id":"Order ID (Codice Market)",
-        "quantity":"Quantità ordinata",
-        "item-price":"Fatturato (Lordo)",
-        "fee":"Fee (€)"
+        "ship-country": "Paese (Mercato)",
+        "amazon-order-id": "Order ID (Codice Market)",
+        "quantity": "Quantità ordinata",
+        "item-price": "Fatturato (Lordo)",
+        "Commissioni Amazon": "Fee (€)"
     })
 
-# -------------------------
+# =========================================================
 # TEMU
-# -------------------------
+# =========================================================
 temu_df = None
 
 if temu_file:
 
-    temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip") \
-        if not temu_file.name.endswith(".xlsx") else pd.read_excel(temu_file)
+    if temu_file.name.endswith(".xlsx"):
+        temu = pd.read_excel(temu_file)
+    else:
+        temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
 
     temu.columns = temu.columns.str.strip()
 
-    date_col = find_col(temu, "acquisto")
+    date_col = find_col(temu, "data di acquisto")
     country_col = find_col(temu, "paese")
     order_col = find_col(temu, "id ordine")
     sku_col = find_col(temu, "codice sku")
@@ -163,7 +153,11 @@ if temu_file:
 
     t = pd.DataFrame()
 
-    t["Data ordine"] = temu[date_col].apply(parse_temu_date).dt.strftime("%d/%m/%Y")
+    t["Data ordine"] = pd.to_datetime(
+        temu[date_col].astype(str).apply(parse_temu_date),
+        errors="coerce"
+    ).dt.strftime("%d/%m/%Y")
+
     t["Marketplace"] = "Temu"
     t["Paese (Mercato)"] = temu[country_col].apply(map_country)
     t["Order ID (Codice Market)"] = temu[order_col]
@@ -171,82 +165,100 @@ if temu_file:
     def get_product(row):
         sku = row.get(sku_col)
         name = row.get("nome dell'articolo")
-        return sku if pd.notna(sku) and str(sku).strip() != "" else name
+        return sku if pd.notna(sku) and str(sku).strip() else name
 
     t["Prodotto"] = temu.apply(get_product, axis=1)
+
     t["Quantità ordinata"] = pd.to_numeric(temu[qty_col], errors="coerce").fillna(0)
 
-    def safe(col):
+    def safe_col(col):
         return temu[col].apply(to_float) if col in temu.columns else 0
 
     t["Fatturato (Lordo)"] = (
-        safe("Totale prezzo base dopo lo sconto")
-        + safe("Totale spedizione (imposte escluse)")
-        + safe("Imposta sull'articolo")
-        + safe("Imposta sulla spedizione")
+        safe_col("Totale prezzo base dopo lo sconto")
+        + safe_col("Totale spedizione (imposte escluse)")
+        + safe_col("Imposta sull'articolo")
+        + safe_col("Imposta sulla spedizione")
     )
 
     t["Fee (€)"] = 0.0
 
     temu_df = t
 
-# -------------------------
-# EBAY (FIX DEFINITIVO FEES + ADS)
-# -------------------------
+# =========================================================
+# EBAY (FIX DEFINITIVO)
+# =========================================================
 ebay_df = None
 
-if ebay_orders_file and ebay_fee_file:
+if ebay_orders_file and ebay_comm_file:
 
-    ebay_orders = pd.read_excel(ebay_orders_file)
-    ebay_fee = pd.read_excel(ebay_fee_file)
+    orders = pd.read_excel(ebay_orders_file) if ebay_orders_file.name.endswith(".xlsx") else pd.read_csv(ebay_orders_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
+    comm = pd.read_excel(ebay_comm_file) if ebay_comm_file.name.endswith(".xlsx") else pd.read_csv(ebay_comm_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
 
-    ebay_orders.columns = ebay_orders.columns.str.strip()
-    ebay_fee.columns = ebay_fee.columns.str.strip()
+    orders.columns = orders.columns.str.strip()
+    comm.columns = comm.columns.str.strip()
 
-    order_col = find_col(ebay_fee, "numero ordine")
+    # ---------------- ORDERS ----------------
+    def parse_ebay_date(x):
+        if pd.isna(x):
+            return pd.NaT
+        x = str(x)
+        x = re.sub(r"CEST.*", "", x)
+        return pd.to_datetime(x, errors="coerce")
 
-    fee_cols = [
+    orders["Data ordine"] = pd.to_datetime(
+        orders["Data vendita"].apply(parse_ebay_date),
+        errors="coerce"
+    ).dt.strftime("%d/%m/%Y")
+
+    def map_country_ebay(val):
+        if pd.isna(val):
+            return ""
+        return {
+            "italia": "IT",
+            "italy": "IT",
+            "germany": "DE",
+            "france": "FR",
+            "spain": "ES"
+        }.get(str(val).lower(), str(val)[:2].upper())
+
+    orders["Marketplace"] = orders["Numero ordine"].apply(lambda x: "Temu" if str(x).startswith("PO-098") else "eBay")
+    orders["Paese (Mercato)"] = orders["Paese dell'acquirente"].apply(map_country_ebay)
+    orders["Order ID (Codice Market)"] = orders["Numero ordine"]
+
+    orders["Prodotto"] = orders.apply(lambda r: r.get("Etichetta personalizzata") or r.get("Titolo"), axis=1)
+
+    orders["Quantità ordinata"] = pd.to_numeric(orders["Quantità"], errors="coerce").fillna(0)
+
+    orders["Fatturato (Lordo)"] = orders["Costo totale"].apply(to_float)
+
+    # ---------------- FEES FIX ----------------
+    comm_cols = [
         "Commissione sul valore finale - fissa",
         "Commissione sul valore finale - variabile",
         "Tariffa per l'adeguamento normativo",
-        "Tariffa Inserzioni sponsorizzate con strategia generale"
+        "Costo totale"
     ]
 
-    def row_fee_sum(row):
-        total = 0.0
-        for c in fee_cols:
-            if c in row:
-                total += to_float(row[c])
-        return total
+    for c in comm_cols:
+        if c in comm.columns:
+            comm[c] = comm[c].apply(to_float)
+        else:
+            comm[c] = 0
 
-    ebay_fee["fee_totale"] = ebay_fee.apply(row_fee_sum, axis=1)
+    comm["fee_row"] = comm[comm_cols].sum(axis=1)
 
-    ebay_fee = ebay_fee.groupby(order_col, as_index=False)["fee_totale"].sum()
+    fees = comm.groupby("Numero ordine", as_index=False)["fee_row"].sum()
+    fees = fees.rename(columns={"fee_row": "Fee (€)"})
 
-    df = ebay_orders.merge(ebay_fee, on="Numero ordine", how="left")
+    orders = orders.merge(fees, left_on="Numero ordine", right_on="Numero ordine", how="left")
+    orders["Fee (€)"] = orders["Fee (€)"].fillna(0)
 
-    e = pd.DataFrame()
+    ebay_df = orders
 
-    e["Data ordine"] = df["Data vendita"].apply(parse_ebay_date).dt.strftime("%d/%m/%Y")
-    e["Marketplace"] = "eBay"
-    e["Paese (Mercato)"] = df["Paese dell'acquirente"].apply(map_country)
-    e["Order ID (Codice Market)"] = df["Numero ordine"]
-
-    def get_product_ebay(row):
-        sku = row.get("Etichetta personalizzata")
-        titolo = row.get("Titolo")
-        return map_sku(sku) if pd.notna(sku) and str(sku).strip() != "" else titolo
-
-    e["Prodotto"] = df.apply(get_product_ebay, axis=1)
-    e["Quantità ordinata"] = pd.to_numeric(df["Quantità"], errors="coerce").fillna(0)
-    e["Fatturato (Lordo)"] = df["Costo totale"].apply(to_float)
-    e["Fee (€)"] = df["fee_totale"].fillna(0)
-
-    ebay_df = e
-
-# -------------------------
+# =========================================================
 # MERGE FINALE
-# -------------------------
+# =========================================================
 frames = []
 
 if amazon_df is not None:
@@ -261,12 +273,7 @@ if ebay_df is not None:
 if frames:
 
     final_df = pd.concat(frames, ignore_index=True)
-
-    final_df["sort_date"] = pd.to_datetime(
-        final_df["Data ordine"], format="%d/%m/%Y", errors="coerce"
-    )
-
-    final_df = final_df.sort_values("sort_date").drop(columns=["sort_date"])
+    final_df = final_df.sort_values("Data ordine")
 
     st.success("Elaborazione completata!")
     st.dataframe(final_df)
