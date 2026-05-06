@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import re
 from supabase import create_client
 
 # -------------------------
@@ -24,6 +23,7 @@ def load_products():
 products_df = load_products()
 product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 
+
 # -------------------------
 # FILE UPLOAD
 # -------------------------
@@ -33,7 +33,7 @@ temu_file = st.file_uploader("📄 Temu FILE", type=["csv", "txt"])
 
 
 # -------------------------
-# FUNZIONI AMAZON
+# AMAZON FUNCTIONS
 # -------------------------
 def clean_marketplace(val):
     if pd.isna(val):
@@ -58,7 +58,7 @@ def map_sku(original_sku):
 
 
 # -------------------------
-# FUNZIONI TEMU
+# TEMU FUNCTIONS
 # -------------------------
 def parse_temu_date(date_str):
     dt = pd.to_datetime(date_str, errors="coerce", dayfirst=True)
@@ -80,7 +80,7 @@ def map_country(val):
 
 
 def temu_product(row):
-    sku = row.get("Codice SKU")
+    sku = row.get("codice sku")
     name = row.get("nome dell'articolo")
 
     if pd.notna(sku) and str(sku).strip() != "":
@@ -95,10 +95,10 @@ def temu_product(row):
 def temu_gross(row):
     try:
         return (
-            float(row.get("Totale prezzo base dopo lo sconto", 0) or 0)
-            + float(row.get("Totale spedizione (imposte escluse)", 0) or 0)
-            + float(row.get("Imposta sull'articolo", 0) or 0)
-            + float(row.get("Imposta sulla spedizione", 0) or 0)
+            float(row.get("totale prezzo base dopo lo sconto", 0) or 0)
+            + float(row.get("totale spedizione (imposte escluse)", 0) or 0)
+            + float(row.get("imposta sull'articolo", 0) or 0)
+            + float(row.get("imposta sulla spedizione", 0) or 0)
         )
     except:
         return 0
@@ -153,7 +153,7 @@ if amazon_orders and amazon_comm:
 
 
 # -------------------------
-# TEMU PROCESS
+# TEMU PROCESS (FIX ROBUSTO)
 # -------------------------
 temu_df = None
 
@@ -161,17 +161,24 @@ if temu_file:
 
     temu = pd.read_csv(temu_file, sep="\t")
 
-    t = pd.DataFrame()
-
-    t["Data ordine"] = temu["data di acquisto"].apply(parse_temu_date)
-
-    t["Marketplace"] = temu["ID Ordine"].apply(
-        lambda x: "Temu" if str(x).startswith("PO-") else "Temu"
+    # FIX CRITICO: pulizia colonne
+    temu.columns = (
+        temu.columns
+        .str.replace("\ufeff", "", regex=True)
+        .str.strip()
+        .str.lower()
     )
 
-    t["Paese (Mercato)"] = temu["Paese di spedizione"].apply(map_country)
+    t = pd.DataFrame()
 
-    t["Order ID (Codice Market)"] = temu["ID Ordine"]
+    # data sicura
+    t["Data ordine"] = temu["data di acquisto"].apply(parse_temu_date)
+
+    t["Marketplace"] = "Temu"
+
+    t["Paese (Mercato)"] = temu["paese di spedizione"].apply(map_country)
+
+    t["Order ID (Codice Market)"] = temu["id ordine"]
 
     t["Prodotto (SKU o nome)"] = temu.apply(temu_product, axis=1)
 
@@ -181,7 +188,11 @@ if temu_file:
 
     t["Fee (€)"] = 0.00
 
-    t["Data ordine_raw"] = pd.to_datetime(t["Data ordine"], dayfirst=True, errors="coerce")
+    t["Data ordine_raw"] = pd.to_datetime(
+        t["Data ordine"],
+        dayfirst=True,
+        errors="coerce"
+    )
 
     temu_df = t
 
