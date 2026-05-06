@@ -15,7 +15,7 @@ st.title("📦 Multi Marketplace Processor")
 
 
 # -------------------------
-# PRODOTTI SUPABASE
+# PRODOTTI
 # -------------------------
 @st.cache_data
 def load_products():
@@ -27,7 +27,7 @@ product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 
 
 # -------------------------
-# UPLOAD FILE
+# UPLOAD
 # -------------------------
 orders_file = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
 comm_file = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
@@ -51,8 +51,24 @@ def clean_marketplace(val):
 
 
 # -------------------------
-# TEMU FUNCTIONS
+# TEMU FIX FUNZIONI
 # -------------------------
+def to_float(x):
+    try:
+        return float(str(x).replace(",", "."))
+    except:
+        return 0.0
+
+
+def temu_gross(row):
+    return (
+        to_float(row["Totale prezzo base dopo lo sconto"])
+        + to_float(row["Totale spedizione (imposte escluse)"])
+        + to_float(row["Imposta sull'articolo"])
+        + to_float(row["Imposta sulla spedizione"])
+    )
+
+
 def map_country(val):
     if pd.isna(val):
         return ""
@@ -63,27 +79,6 @@ def map_country(val):
         "france": "FR",
         "spain": "ES"
     }.get(val, val[:2].upper())
-
-
-def temu_product(row):
-    sku = row["Codice SKU"]
-    name = row["nome dell'articolo"]
-
-    if pd.notna(sku) and str(sku).strip() != "":
-        return sku
-    return name
-
-
-def temu_gross(row):
-    try:
-        return (
-            float(row["Totale prezzo base dopo lo sconto"] or 0)
-            + float(row["Totale spedizione (imposte escluse)"] or 0)
-            + float(row["Imposta sull'articolo"] or 0)
-            + float(row["Imposta sulla spedizione"] or 0)
-        )
-    except:
-        return 0
 
 
 # -------------------------
@@ -142,22 +137,22 @@ if temu_file:
     else:
         temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
 
-    # 🔥 FIX COLONNE (minimo ma efficace)
+    # 🔥 FIX COLONNE
     temu.columns = (
         temu.columns
         .str.replace("\ufeff", "", regex=True)
+        .str.replace("\n", " ", regex=True)
         .str.strip()
     )
 
     t = pd.DataFrame()
 
     # -------------------------
-    # DATA ORDINE
+    # DATA ORDINE (FIX DEFINITIVO)
     # -------------------------
     t["Data ordine"] = pd.to_datetime(
         temu["data di acquisto"],
-        errors="coerce",
-        dayfirst=True
+        errors="coerce"
     ).dt.strftime("%d/%m/%Y")
 
     # -------------------------
@@ -166,7 +161,7 @@ if temu_file:
     t["Marketplace"] = "Temu"
 
     # -------------------------
-    # PAESE (ESATTO COME FILE)
+    # PAESE
     # -------------------------
     t["Paese (Mercato)"] = temu["Paese di spedizione"].apply(map_country)
 
@@ -197,7 +192,7 @@ if temu_file:
     ).fillna(0)
 
     # -------------------------
-    # FATTURATO
+    # FATTURATO (FIX REALE)
     # -------------------------
     t["Fatturato (Lordo)"] = temu.apply(temu_gross, axis=1)
 
@@ -223,6 +218,7 @@ if temu_df is not None:
 if frames:
 
     final_df = pd.concat(frames, ignore_index=True)
+
     final_df = final_df.sort_values("Data ordine", ascending=True)
 
     st.success("Elaborazione completata!")
