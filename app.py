@@ -80,14 +80,15 @@ def map_country(val):
     }.get(val, val[:2].upper())
 
 
-# 🔥 FIX DATA TEMU DEFINITIVO
+# -------------------------
+# FIX DATA TEMU
+# -------------------------
 def parse_temu_date(x):
     if pd.isna(x):
         return pd.NaT
 
     x = str(x)
 
-    # rimuove timezone sporca
     x = re.sub(r"CEST.*", "", x).strip()
 
     mesi = {
@@ -157,7 +158,7 @@ if orders_file and comm_file:
 
 
 # -------------------------
-# TEMU PROCESS (FINAL FIX)
+# TEMU PROCESS (FIXATO)
 # -------------------------
 temu_df = None
 
@@ -176,33 +177,31 @@ if temu_file:
         .str.strip()
     )
 
-    # colonne dinamiche
-    date_col = find_col(temu, "acquisto")
+    # 🔥 FIX COLONNE (PIÙ PRECISO)
+    date_col = find_col(temu, "data di acquisto")
     country_col = find_col(temu, "paese")
     order_col = find_col(temu, "id ordine")
     sku_col = find_col(temu, "codice sku")
     qty_col = find_col(temu, "quantità")
 
+    # 🔴 BLOCCO SE COLONNE NON TROVATE
+    if date_col is None or country_col is None or order_col is None:
+        st.error("❌ Colonne Temu non trovate")
+        st.write(temu.columns.tolist())
+        st.stop()
+
     t = pd.DataFrame()
 
     # -------------------------
-    # DATA (FIX DEFINITIVO)
+    # DATA SICURA
     # -------------------------
-    t["Data ordine"] = temu[date_col].apply(parse_temu_date).dt.strftime("%d/%m/%Y")
+    t["Data ordine"] = pd.to_datetime(
+        temu[date_col].astype(str).apply(parse_temu_date),
+        errors="coerce"
+    ).dt.strftime("%d/%m/%Y")
 
-    # -------------------------
-    # MARKETPLACE
-    # -------------------------
     t["Marketplace"] = "Temu"
-
-    # -------------------------
-    # PAESE
-    # -------------------------
     t["Paese (Mercato)"] = temu[country_col].apply(map_country)
-
-    # -------------------------
-    # ORDER ID
-    # -------------------------
     t["Order ID (Codice Market)"] = temu[order_col]
 
     # -------------------------
@@ -227,18 +226,18 @@ if temu_file:
     ).fillna(0)
 
     # -------------------------
-    # FATTURATO
+    # FATTURATO SICURO
     # -------------------------
+    def safe_col(df, col):
+        return df[col].apply(to_float) if col in df.columns else 0
+
     t["Fatturato (Lordo)"] = (
-        temu["Totale prezzo base dopo lo sconto"].apply(to_float)
-        + temu["Totale spedizione (imposte escluse)"].apply(to_float)
-        + temu["Imposta sull'articolo"].apply(to_float)
-        + temu["Imposta sulla spedizione"].apply(to_float)
+        safe_col(temu, "Totale prezzo base dopo lo sconto")
+        + safe_col(temu, "Totale spedizione (imposte escluse)")
+        + safe_col(temu, "Imposta sull'articolo")
+        + safe_col(temu, "Imposta sulla spedizione")
     )
 
-    # -------------------------
-    # FEE
-    # -------------------------
     t["Fee (€)"] = 0.00
 
     temu_df = t
