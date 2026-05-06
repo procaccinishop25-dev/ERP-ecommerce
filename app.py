@@ -80,14 +80,14 @@ def map_country(val):
     }.get(val, val[:2].upper())
 
 
-# 🔥 FIX DEFINITIVO DATE TEMU
+# 🔥 FIX DATA TEMU DEFINITIVO
 def parse_temu_date(x):
     if pd.isna(x):
         return pd.NaT
 
     x = str(x)
 
-    # rimuove timezone tipo CEST(UTC+2)
+    # rimuove timezone sporca
     x = re.sub(r"CEST.*", "", x).strip()
 
     mesi = {
@@ -106,7 +106,8 @@ def parse_temu_date(x):
     }
 
     for it, en in mesi.items():
-        x = re.sub(rf"\b{it}\b", en, x, flags=re.IGNORECASE)
+        if f" {it} " in x:
+            x = x.replace(it, en)
 
     return pd.to_datetime(x, errors="coerce")
 
@@ -132,7 +133,7 @@ if orders_file and comm_file:
         df["purchase-date"],
         errors="coerce",
         utc=True
-    )
+    ).dt.strftime("%d/%m/%Y")
 
     df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
     df["Prodotto"] = df["sku"].apply(map_sku)
@@ -156,7 +157,7 @@ if orders_file and comm_file:
 
 
 # -------------------------
-# TEMU PROCESS
+# TEMU PROCESS (FINAL FIX)
 # -------------------------
 temu_df = None
 
@@ -167,6 +168,7 @@ if temu_file:
     else:
         temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
 
+    # pulizia colonne
     temu.columns = (
         temu.columns
         .str.replace("\ufeff", "", regex=True)
@@ -174,6 +176,7 @@ if temu_file:
         .str.strip()
     )
 
+    # colonne dinamiche
     date_col = find_col(temu, "acquisto")
     country_col = find_col(temu, "paese")
     order_col = find_col(temu, "id ordine")
@@ -182,13 +185,29 @@ if temu_file:
 
     t = pd.DataFrame()
 
-    # ✅ DATA TEMU (ORA ROBUSTA)
-    t["Data ordine"] = temu[date_col].apply(parse_temu_date)
+    # -------------------------
+    # DATA (FIX DEFINITIVO)
+    # -------------------------
+    t["Data ordine"] = temu[date_col].apply(parse_temu_date).dt.strftime("%d/%m/%Y")
 
+    # -------------------------
+    # MARKETPLACE
+    # -------------------------
     t["Marketplace"] = "Temu"
+
+    # -------------------------
+    # PAESE
+    # -------------------------
     t["Paese (Mercato)"] = temu[country_col].apply(map_country)
+
+    # -------------------------
+    # ORDER ID
+    # -------------------------
     t["Order ID (Codice Market)"] = temu[order_col]
 
+    # -------------------------
+    # PRODOTTO
+    # -------------------------
     def get_product(row):
         sku = row.get(sku_col)
         name = row.get("nome dell'articolo")
@@ -199,11 +218,17 @@ if temu_file:
 
     t["Prodotto"] = temu.apply(get_product, axis=1)
 
+    # -------------------------
+    # QUANTITÀ
+    # -------------------------
     t["Quantità ordinata"] = pd.to_numeric(
         temu[qty_col],
         errors="coerce"
     ).fillna(0)
 
+    # -------------------------
+    # FATTURATO
+    # -------------------------
     t["Fatturato (Lordo)"] = (
         temu["Totale prezzo base dopo lo sconto"].apply(to_float)
         + temu["Totale spedizione (imposte escluse)"].apply(to_float)
@@ -211,6 +236,9 @@ if temu_file:
         + temu["Imposta sulla spedizione"].apply(to_float)
     )
 
+    # -------------------------
+    # FEE
+    # -------------------------
     t["Fee (€)"] = 0.00
 
     temu_df = t
@@ -230,18 +258,7 @@ if temu_df is not None:
 if frames:
 
     final_df = pd.concat(frames, ignore_index=True)
-
-    # 🔥 FIX UNICO DEFINITIVO
-    final_df["Data ordine"] = pd.to_datetime(
-        final_df["Data ordine"],
-        errors="coerce"
-    )
-
-    # ordinamento corretto
     final_df = final_df.sort_values("Data ordine", ascending=True)
-
-    # formato solo per export
-    final_df["Data ordine"] = final_df["Data ordine"].dt.strftime("%d/%m/%Y")
 
     st.success("Elaborazione completata!")
     st.dataframe(final_df)
