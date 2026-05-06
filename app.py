@@ -29,11 +29,15 @@ product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 # -------------------------
 amazon_orders = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
 amazon_comm = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
-temu_file = st.file_uploader("📄 Temu FILE", type=["csv", "txt"])
+
+temu_file = st.file_uploader(
+    "📄 Temu FILE",
+    type=["csv", "txt", "xlsx"]
+)
 
 
 # -------------------------
-# AMAZON
+# AMAZON FUNCTIONS
 # -------------------------
 def clean_marketplace(val):
     if pd.isna(val):
@@ -58,7 +62,7 @@ def map_sku(original_sku):
 
 
 # -------------------------
-# TEMU
+# TEMU FUNCTIONS
 # -------------------------
 def parse_temu_date(date_str):
     dt = pd.to_datetime(date_str, errors="coerce", dayfirst=True)
@@ -153,15 +157,19 @@ if amazon_orders and amazon_comm:
 
 
 # -------------------------
-# TEMU PROCESS (FIX DEFINITIVO KEY ERROR)
+# TEMU PROCESS (CSV + EXCEL SUPPORT)
 # -------------------------
 temu_df = None
 
 if temu_file:
 
-    temu = pd.read_csv(temu_file, sep="\t")
+    # 🔥 AUTO DETECT EXCEL O CSV
+    if temu_file.name.endswith(".xlsx"):
+        temu = pd.read_excel(temu_file)
+    else:
+        temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
 
-    # pulizia colonne (CRITICO)
+    # pulizia colonne
     temu.columns = (
         temu.columns
         .str.replace("\ufeff", "", regex=True)
@@ -171,25 +179,35 @@ if temu_file:
 
     t = pd.DataFrame()
 
-    # FIX ROBUSTO: trova colonna senza errori
+    # DATA (robusto)
     date_col = [c for c in temu.columns if "acquisto" in c][0]
-
     t["Data ordine"] = temu[date_col].apply(parse_temu_date)
 
+    # MARKETPLACE
     t["Marketplace"] = "Temu"
 
-    t["Paese (Mercato)"] = temu["paese di spedizione"].apply(map_country)
+    # PAESE (robusto)
+    country_col = [c for c in temu.columns if "spedizione" in c][0]
+    t["Paese (Mercato)"] = temu[country_col].apply(map_country)
 
-    t["Order ID (Codice Market)"] = temu["id ordine"]
+    # ORDER ID
+    order_col = [c for c in temu.columns if "id ordine" in c][0]
+    t["Order ID (Codice Market)"] = temu[order_col]
 
+    # PRODOTTO
     t["Prodotto (SKU o nome)"] = temu.apply(temu_product, axis=1)
 
-    t["Quantità ordinata"] = temu["quantità acquistata"]
+    # QUANTITÀ
+    qty_col = [c for c in temu.columns if "quantità" in c][0]
+    t["Quantità ordinata"] = temu[qty_col]
 
+    # FATTURATO
     t["Fatturato (Lordo)"] = temu.apply(temu_gross, axis=1)
 
+    # FEE
     t["Fee (€)"] = 0.00
 
+    # DATA RAW
     t["Data ordine_raw"] = pd.to_datetime(
         t["Data ordine"],
         dayfirst=True,
