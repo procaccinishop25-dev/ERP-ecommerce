@@ -13,7 +13,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.title("📦 Amazon Order Processor")
 
 # -------------------------
-# CARICA PRODOTTI (CACHE)
+# PRODOTTI (CACHE)
 # -------------------------
 @st.cache_data
 def load_products():
@@ -22,7 +22,6 @@ def load_products():
 
 products_df = load_products()
 
-# dizionario veloce: codice → nome prodotto
 product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 
 
@@ -53,11 +52,9 @@ def map_sku(original_sku):
 
     product_name = product_map.get(code)
 
-    # CASO TROVATO
     if product_name:
         return f"{product_name} - {code}"
 
-    # CASO NON TROVATO → ritorna input originale
     return original_sku
 
 
@@ -66,7 +63,7 @@ def map_sku(original_sku):
 # -------------------------
 if orders_file and comm_file:
 
-    # ORDINI (TSV Amazon)
+    # ORDINI AMAZON
     orders = pd.read_csv(orders_file, sep="\t")
 
     # COMMISSIONI
@@ -81,26 +78,31 @@ if orders_file and comm_file:
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
     # -------------------------
-    # TRASFORMAZIONI
+    # FIX DATA ROBUSTO (QUI IL PROBLEMA ERA)
     # -------------------------
+    df["Data ordine_raw"] = pd.to_datetime(
+        df["purchase-date"],
+        errors="coerce",
+        utc=True
+    )
 
-    # DATA (raw per sorting)
-    df["Data ordine_raw"] = pd.to_datetime(df["purchase-date"])
+    # fallback per evitare “sparizioni”
+    df["Data ordine_raw"] = df["Data ordine_raw"].fillna(pd.Timestamp("1900-01-01"))
 
     df["Data ordine"] = df["Data ordine_raw"].dt.strftime("%d/%m/%Y")
 
-    # MARKETPLACE
+    # -------------------------
+    # ALTRE TRASFORMAZIONI
+    # -------------------------
     df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
 
-    # SKU → PRODOTTO
     df["Prodotto"] = df["sku"].apply(map_sku)
 
     # -------------------------
-    # ORDINAMENTO
+    # ORDINE CORRETTO
     # -------------------------
     df = df.sort_values("Data ordine_raw", ascending=True)
 
-    # rimuovo colonna tecnica
     df = df.drop(columns=["Data ordine_raw"])
 
     # -------------------------
