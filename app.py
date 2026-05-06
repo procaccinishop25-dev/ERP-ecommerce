@@ -3,7 +3,7 @@ import pandas as pd
 from supabase import create_client
 
 # -------------------------
-# SUPABASE (st.secrets)
+# SUPABASE (SECRETS)
 # -------------------------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
@@ -13,17 +13,16 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.title("📦 Amazon Order Processor")
 
 # -------------------------
-# CACHE PRODOTTI (IMPORTANTISSIMO)
+# CARICA PRODOTTI (CACHE)
 # -------------------------
 @st.cache_data
 def load_products():
     res = supabase.table("prodotti").select("codice, nome_prodotto").execute()
-    df = pd.DataFrame(res.data)
-    return df
+    return pd.DataFrame(res.data)
 
 products_df = load_products()
 
-# trasformo in dict per velocità O(1)
+# dizionario veloce: codice → nome prodotto
 product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 
 
@@ -31,30 +30,35 @@ product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 # UPLOAD FILE
 # -------------------------
 orders_file = st.file_uploader("📄 File ORDINI Amazon", type=["csv", "txt"])
-comm_file = st.file_uploader("📄 File COMMISSIONI", type=["csv", "txt"])
+comm_file = st.file_uploader("📄 File COMMISSIONI Amazon", type=["csv", "txt"])
 
 
 # -------------------------
 # FUNZIONI
 # -------------------------
-def format_date(date_str):
-    return pd.to_datetime(date_str).strftime("%d/%m/%Y")
-
-
 def clean_marketplace(val):
     if pd.isna(val):
         return val
     return str(val).split(".")[0]
 
 
-def extract_sku(sku):
+def extract_code(sku):
     if "_" in str(sku):
         return str(sku).split("_")[1]
     return sku
 
 
-def map_product(sku):
-    return product_map.get(sku, sku)  # fallback = SKU originale
+def map_sku(original_sku):
+    code = extract_code(original_sku)
+
+    product_name = product_map.get(code)
+
+    # CASO TROVATO
+    if product_name:
+        return f"{product_name} - {code}"
+
+    # CASO NON TROVATO → ritorna input originale
+    return original_sku
 
 
 # -------------------------
@@ -62,7 +66,7 @@ def map_product(sku):
 # -------------------------
 if orders_file and comm_file:
 
-    # ORDINI AMAZON (TSV)
+    # ORDINI (TSV Amazon)
     orders = pd.read_csv(orders_file, sep="\t")
 
     # COMMISSIONI
@@ -80,17 +84,24 @@ if orders_file and comm_file:
     # TRASFORMAZIONI
     # -------------------------
 
-    # DATA
-    df["Data ordine"] = df["purchase-date"].apply(format_date)
+    # DATA (raw per sorting)
+    df["Data ordine_raw"] = pd.to_datetime(df["purchase-date"])
+
+    df["Data ordine"] = df["Data ordine_raw"].dt.strftime("%d/%m/%Y")
 
     # MARKETPLACE
     df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
 
-    # SKU CLEAN
-    df["sku_clean"] = df["sku"].apply(extract_sku)
+    # SKU → PRODOTTO
+    df["Prodotto"] = df["sku"].apply(map_sku)
 
-    # PRODOTTO DA SUPABASE
-    df["Prodotto"] = df["sku_clean"].apply(map_product)
+    # -------------------------
+    # ORDINAMENTO
+    # -------------------------
+    df = df.sort_values("Data ordine_raw", ascending=True)
+
+    # rimuovo colonna tecnica
+    df = df.drop(columns=["Data ordine_raw"])
 
     # -------------------------
     # OUTPUT FINALE
@@ -116,7 +127,7 @@ if orders_file and comm_file:
     csv = output.to_csv(index=False).encode("utf-8")
 
     st.download_button(
-        "⬇️ Scarica Excel finale",
+        "⬇️ Scarica file finale",
         csv,
         "amazon_output.csv",
         "text/csv"
