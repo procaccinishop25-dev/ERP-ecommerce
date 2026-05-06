@@ -105,7 +105,6 @@ def parse_temu_date(x):
         "dic": "Dec"
     }
 
-    # sostituzione robusta mesi
     for it, en in mesi.items():
         x = re.sub(rf"\b{it}\b", en, x, flags=re.IGNORECASE)
 
@@ -183,6 +182,7 @@ if temu_file:
 
     t = pd.DataFrame()
 
+    # ✅ DATA TEMU (ORA ROBUSTA)
     t["Data ordine"] = temu[date_col].apply(parse_temu_date)
 
     t["Marketplace"] = "Temu"
@@ -231,16 +231,16 @@ if frames:
 
     final_df = pd.concat(frames, ignore_index=True)
 
-    # 🔥 FIX: uniforma i tipi → evita TypeError
+    # 🔥 FIX UNICO DEFINITIVO
     final_df["Data ordine"] = pd.to_datetime(
         final_df["Data ordine"],
         errors="coerce"
     )
 
-    # ✅ ordinamento corretto
+    # ordinamento corretto
     final_df = final_df.sort_values("Data ordine", ascending=True)
 
-    # ✅ formato finale per Excel
+    # formato solo per export
     final_df["Data ordine"] = final_df["Data ordine"].dt.strftime("%d/%m/%Y")
 
     st.success("Elaborazione completata!")
