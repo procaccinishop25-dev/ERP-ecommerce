@@ -55,7 +55,7 @@ def find_col(df, keyword):
 
 def to_float(x):
     try:
-        return float(str(x).replace(",", ".").replace("€", "").replace("-", "").strip())
+        return float(str(x).replace("€", "").replace(",", ".").replace(" ", "").strip())
     except:
         return 0.0
 
@@ -71,7 +71,7 @@ def map_country(val):
     }.get(val, val[:2].upper())
 
 # -------------------------
-# PARSE DATA TEMU
+# TEMU DATE FIX
 # -------------------------
 def parse_temu_date(x):
     if pd.isna(x):
@@ -109,9 +109,8 @@ if orders_file and comm_file:
 
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
-    df["Data ordine"] = pd.to_datetime(
-        df["purchase-date"], errors="coerce", utc=True
-    ).dt.strftime("%d/%m/%Y")
+    df["Data ordine"] = pd.to_datetime(df["purchase-date"], errors="coerce", utc=True)\
+        .dt.strftime("%d/%m/%Y")
 
     df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
     df["Prodotto"] = df["sku"].apply(map_sku)
@@ -165,9 +164,7 @@ if temu_file:
 
     t["Prodotto"] = temu.apply(get_product, axis=1)
 
-    t["Quantità ordinata"] = pd.to_numeric(
-        temu[qty_col], errors="coerce"
-    ).fillna(0)
+    t["Quantità ordinata"] = pd.to_numeric(temu[qty_col], errors="coerce").fillna(0)
 
     def safe(col):
         return temu[col].apply(to_float) if col in temu.columns else 0
@@ -179,12 +176,12 @@ if temu_file:
         + safe("Imposta sulla spedizione")
     )
 
-    t["Fee (€)"] = 0.00
+    t["Fee (€)"] = 0.0
 
     temu_df = t
 
 # -------------------------
-# EBAY
+# EBAY (FIX DEFINITIVO STABILE)
 # -------------------------
 ebay_df = None
 
@@ -203,29 +200,28 @@ if ebay_orders_file and ebay_fee_file:
     ebay_orders.columns = ebay_orders.columns.str.strip()
     ebay_fee.columns = ebay_fee.columns.str.strip()
 
-    # 🔥 FEE COMPLETE (anche pubblicità)
-    def extract_all_fees(row):
-        totale = 0.0
-        for val in row:
-            val = str(val)
-            if "-" in val:
-                try:
-                    totale += abs(float(val.replace(",", ".").replace("€", "").strip()))
-                except:
-                    pass
-        return totale
+    # 🔥 SOMMA TUTTE LE FEES (anche ADV, anche righe duplicate)
+    def calc_fee(row):
+        total = 0.0
+        for v in row:
+            try:
+                v = str(v)
+                if "-" in v:
+                    total += abs(to_float(v))
+            except:
+                pass
+        return total
 
-    ebay_fee["fee_totale"] = ebay_fee.apply(extract_all_fees, axis=1)
+    ebay_fee["fee_totale"] = ebay_fee.apply(calc_fee, axis=1)
 
-    ebay_fee = ebay_fee.groupby("Numero ordine")["fee_totale"].sum().reset_index()
+    ebay_fee = ebay_fee.groupby("Numero ordine", as_index=False)["fee_totale"].sum()
 
     df = ebay_orders.merge(ebay_fee, on="Numero ordine", how="left")
 
     e = pd.DataFrame()
 
-    e["Data ordine"] = pd.to_datetime(
-        df["Data vendita"], errors="coerce"
-    ).dt.strftime("%d/%m/%Y")
+    e["Data ordine"] = pd.to_datetime(df["Data vendita"], errors="coerce")\
+        .dt.strftime("%d/%m/%Y")
 
     e["Marketplace"] = "eBay"
     e["Paese (Mercato)"] = df["Paese dell'acquirente"].apply(map_country)
@@ -240,10 +236,7 @@ if ebay_orders_file and ebay_fee_file:
 
     e["Prodotto"] = df.apply(get_product_ebay, axis=1)
 
-    e["Quantità ordinata"] = pd.to_numeric(
-        df["Quantità"], errors="coerce"
-    ).fillna(0)
-
+    e["Quantità ordinata"] = pd.to_numeric(df["Quantità"], errors="coerce").fillna(0)
     e["Fatturato (Lordo)"] = df["Costo totale"].apply(to_float)
     e["Fee (€)"] = df["fee_totale"].fillna(0)
 
@@ -267,17 +260,15 @@ if frames:
 
     final_df = pd.concat(frames, ignore_index=True)
 
-    # ORDINE CRONOLOGICO REALE
-    final_df["Data ordine_sort"] = pd.to_datetime(
+    final_df["sort_date"] = pd.to_datetime(
         final_df["Data ordine"], format="%d/%m/%Y", errors="coerce"
     )
 
-    final_df = final_df.sort_values("Data ordine_sort").drop(columns=["Data ordine_sort"])
+    final_df = final_df.sort_values("sort_date").drop(columns=["sort_date"])
 
     st.success("Elaborazione completata!")
     st.dataframe(final_df)
 
-    # EXPORT EXCEL
     output = BytesIO()
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
