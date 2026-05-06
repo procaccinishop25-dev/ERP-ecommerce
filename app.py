@@ -3,18 +3,17 @@ import pandas as pd
 from supabase import create_client
 
 # -------------------------
-# SUPABASE
+# SUPABASE (SECRETS)
 # -------------------------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-st.title("📦 Multi Marketplace Order Processor")
-
+st.title("📦 Amazon Order Processor")
 
 # -------------------------
-# PRODOTTI SUPABASE
+# PRODOTTI (CACHE)
 # -------------------------
 @st.cache_data
 def load_products():
@@ -22,203 +21,116 @@ def load_products():
     return pd.DataFrame(res.data)
 
 products_df = load_products()
+
 product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 
 
 # -------------------------
 # UPLOAD FILE
 # -------------------------
-amazon_orders = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
-amazon_comm = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
-temu_file = st.file_uploader("📄 Temu FILE", type=["csv", "txt", "xlsx"])
+orders_file = st.file_uploader("📄 File ORDINI Amazon", type=["csv", "txt"])
+comm_file = st.file_uploader("📄 File COMMISSIONI Amazon", type=["csv", "txt"])
 
 
 # -------------------------
-# AMAZON FUNCTIONS
+# FUNZIONI
 # -------------------------
 def clean_marketplace(val):
-    return str(val).split(".")[0] if pd.notna(val) else val
+    if pd.isna(val):
+        return val
+    return str(val).split(".")[0]
 
 
 def extract_code(sku):
-    return str(sku).split("_")[1] if "_" in str(sku) else sku
+    if "_" in str(sku):
+        return str(sku).split("_")[1]
+    return sku
 
 
-def map_sku(sku):
-    code = extract_code(sku)
-    return f"{product_map.get(code)} - {code}" if product_map.get(code) else sku
+def map_sku(original_sku):
+    code = extract_code(original_sku)
 
+    product_name = product_map.get(code)
 
-# -------------------------
-# TEMU FUNCTIONS
-# -------------------------
-def parse_temu_date(date_str):
-    dt = pd.to_datetime(date_str, errors="coerce", dayfirst=True, utc=True)
-    if pd.isna(dt):
-        return ""
-    return dt.strftime("%d/%m/%Y")
+    if product_name:
+        return f"{product_name} - {code}"
 
-
-def map_country(val):
-    if pd.isna(val):
-        return ""
-    mapping = {
-        "Italy": "IT",
-        "Germany": "DE",
-        "France": "FR",
-        "Spain": "ES"
-    }
-    return mapping.get(val, str(val)[:2].upper())
-
-
-def temu_product(row):
-    sku = row.get("codice sku")
-    name = row.get("nome dell'articolo")
-
-    if pd.notna(sku) and str(sku).strip() != "":
-        return sku
-    return name if pd.notna(name) else sku
-
-
-def temu_gross(row):
-    try:
-        return (
-            float(row.get("totale prezzo base dopo lo sconto", 0) or 0)
-            + float(row.get("totale spedizione (imposte escluse)", 0) or 0)
-            + float(row.get("imposta sull'articolo", 0) or 0)
-            + float(row.get("imposta sulla spedizione", 0) or 0)
-        )
-    except:
-        return 0
+    return original_sku
 
 
 # -------------------------
-# AMAZON PROCESS
+# PROCESSING
 # -------------------------
-amazon_df = None
+if orders_file and comm_file:
 
-if amazon_orders and amazon_comm:
+    # ORDINI AMAZON
+    orders = pd.read_csv(orders_file, sep="\t")
 
-    orders = pd.read_csv(amazon_orders, sep="\t")
-    comm = pd.read_csv(amazon_comm, sep=",")
+    # COMMISSIONI
+    comm = pd.read_csv(comm_file, sep=",")
 
     comm = comm.rename(columns={
         "Numero di ordine": "amazon-order-id",
         "Commissioni Amazon": "fee"
     })
 
+    # MERGE
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
-    df["Data ordine"] = pd.to_datetime(
+    # -------------------------
+    # FIX DATA ROBUSTO (QUI IL PROBLEMA ERA)
+    # -------------------------
+    df["Data ordine_raw"] = pd.to_datetime(
         df["purchase-date"],
         errors="coerce",
         utc=True
-    ).dt.strftime("%d/%m/%Y")
-
-    df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
-
-    df["Prodotto (SKU o nome)"] = df["sku"].apply(map_sku)
-
-    amazon_df = df[[
-        "Data ordine",
-        "sales-channel",
-        "ship-country",
-        "amazon-order-id",
-        "Prodotto (SKU o nome)",
-        "quantity",
-        "item-price",
-        "fee",
-        "purchase-date"
-    ]].rename(columns={
-        "sales-channel": "Marketplace",
-        "ship-country": "Paese (Mercato)",
-        "amazon-order-id": "Order ID (Codice Market)",
-        "quantity": "Quantità ordinata",
-        "item-price": "Fatturato (Lordo)",
-        "fee": "Fee (€)"
-    })
-
-
-# -------------------------
-# TEMU PROCESS (EXCEL + CSV)
-# -------------------------
-temu_df = None
-
-if temu_file:
-
-    if temu_file.name.endswith(".xlsx"):
-        temu = pd.read_excel(temu_file)
-    else:
-        temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
-
-    # pulizia colonne
-    temu.columns = (
-        temu.columns
-        .str.replace("\ufeff", "", regex=True)
-        .str.strip()
-        .str.lower()
     )
 
-    t = pd.DataFrame()
+    # fallback per evitare “sparizioni”
+    df["Data ordine_raw"] = df["Data ordine_raw"].fillna(pd.Timestamp("1900-01-01"))
 
-    # DATA TEMU (FORMATO COMPLESSO → DD/MM/YYYY)
-    date_col = [c for c in temu.columns if "acquisto" in c][0]
-    t["Data ordine"] = temu[date_col].apply(parse_temu_date)
+    df["Data ordine"] = df["Data ordine_raw"].dt.strftime("%d/%m/%Y")
 
-    # MARKETPLACE
-    t["Marketplace"] = "Temu"
+    # -------------------------
+    # ALTRE TRASFORMAZIONI
+    # -------------------------
+    df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
 
-    # PAESE
-    country_col = [c for c in temu.columns if "spedizione" in c][0]
-    t["Paese (Mercato)"] = temu[country_col].apply(map_country)
+    df["Prodotto"] = df["sku"].apply(map_sku)
 
-    # ORDER ID
-    order_col = [c for c in temu.columns if "id ordine" in c][0]
-    t["Order ID (Codice Market)"] = temu[order_col]
+    # -------------------------
+    # ORDINE CORRETTO
+    # -------------------------
+    df = df.sort_values("Data ordine_raw", ascending=True)
 
-    # PRODOTTO
-    t["Prodotto (SKU o nome)"] = temu.apply(temu_product, axis=1)
+    df = df.drop(columns=["Data ordine_raw"])
 
-    # QUANTITÀ
-    qty_col = [c for c in temu.columns if "quantità" in c][0]
-    t["Quantità ordinata"] = temu[qty_col]
-
-    # FATTURATO
-    t["Fatturato (Lordo)"] = temu.apply(temu_gross, axis=1)
-
-    # FEE
-    t["Fee (€)"] = 0.00
-
-    temu_df = t
-
-
-# -------------------------
-# MERGE FINALE
-# -------------------------
-frames = []
-
-if amazon_df is not None:
-    frames.append(amazon_df)
-
-if temu_df is not None:
-    frames.append(temu_df)
-
-if frames:
-
-    final_df = pd.concat(frames, ignore_index=True)
-
-    # ordinamento per data (string DD/MM/YYYY ok)
-    final_df = final_df.sort_values("Data ordine", ascending=True)
+    # -------------------------
+    # OUTPUT FINALE
+    # -------------------------
+    output = df[[
+        "Data ordine",
+        "Marketplace",
+        "ship-country",
+        "amazon-order-id",
+        "Prodotto",
+        "quantity",
+        "item-price",
+        "fee"
+    ]]
 
     st.success("Elaborazione completata!")
 
-    st.dataframe(final_df)
+    st.dataframe(output)
 
-    csv = final_df.to_csv(index=False).encode("utf-8")
+    # -------------------------
+    # DOWNLOAD
+    # -------------------------
+    csv = output.to_csv(index=False).encode("utf-8")
 
     st.download_button(
         "⬇️ Scarica file finale",
         csv,
-        "orders_final.csv",
+        "amazon_output.csv",
         "text/csv"
     )
