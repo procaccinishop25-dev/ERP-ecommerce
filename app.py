@@ -80,11 +80,14 @@ def map_country(val):
     }.get(val, val[:2].upper())
 
 
+# 🔥 FIX DEFINITIVO DATE TEMU
 def parse_temu_date(x):
     if pd.isna(x):
         return pd.NaT
 
     x = str(x)
+
+    # rimuove timezone tipo CEST(UTC+2)
     x = re.sub(r"CEST.*", "", x).strip()
 
     mesi = {
@@ -102,9 +105,9 @@ def parse_temu_date(x):
         "dic": "Dec"
     }
 
+    # sostituzione robusta mesi
     for it, en in mesi.items():
-        if f" {it} " in x:
-            x = x.replace(it, en)
+        x = re.sub(rf"\b{it}\b", en, x, flags=re.IGNORECASE)
 
     return pd.to_datetime(x, errors="coerce")
 
@@ -228,7 +231,7 @@ if frames:
 
     final_df = pd.concat(frames, ignore_index=True)
 
-    # 🔥 FIX DEFINITIVO: uniforma i tipi (evita TypeError)
+    # 🔥 FIX: uniforma i tipi → evita TypeError
     final_df["Data ordine"] = pd.to_datetime(
         final_df["Data ordine"],
         errors="coerce"
@@ -237,7 +240,7 @@ if frames:
     # ✅ ordinamento corretto
     final_df = final_df.sort_values("Data ordine", ascending=True)
 
-    # ✅ formato finale per output
+    # ✅ formato finale per Excel
     final_df["Data ordine"] = final_df["Data ordine"].dt.strftime("%d/%m/%Y")
 
     st.success("Elaborazione completata!")
