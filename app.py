@@ -31,8 +31,8 @@ product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 orders_file = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
 comm_file = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
 temu_file = st.file_uploader("📄 TEMU FILE", type=["csv", "txt", "xlsx"])
-ebay_orders_file = st.file_uploader("📄 EBAY ORDINI", type=["csv", "txt", "xlsx"])
-ebay_fee_file = st.file_uploader("📄 EBAY COMMISSIONI", type=["csv", "txt", "xlsx"])
+ebay_orders_file = st.file_uploader("📄 EBAY ORDINI", type=["xlsx"])
+ebay_fee_file = st.file_uploader("📄 EBAY COMMISSIONI", type=["xlsx"])
 
 # -------------------------
 # UTILS
@@ -71,7 +71,7 @@ def map_country(val):
     }.get(val, val[:2].upper())
 
 # -------------------------
-# TEMU DATE
+# DATE PARSERS
 # -------------------------
 def parse_temu_date(x):
     if pd.isna(x):
@@ -91,9 +91,7 @@ def parse_temu_date(x):
 
     return pd.to_datetime(x, errors="coerce")
 
-# -------------------------
-# EBAY DATE (FIX DEFINITIVO)
-# -------------------------
+
 def parse_ebay_date(x):
     if pd.isna(x):
         return pd.NaT
@@ -152,10 +150,8 @@ temu_df = None
 
 if temu_file:
 
-    if temu_file.name.endswith(".xlsx"):
-        temu = pd.read_excel(temu_file)
-    else:
-        temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
+    temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip") \
+        if not temu_file.name.endswith(".xlsx") else pd.read_excel(temu_file)
 
     temu.columns = temu.columns.str.strip()
 
@@ -195,7 +191,7 @@ if temu_file:
     temu_df = t
 
 # -------------------------
-# EBAY (FIX DEFINITIVO)
+# EBAY (VERSIONE SEMPLIFICATA CON COLONNA ADS GIÀ PRESENTE)
 # -------------------------
 ebay_df = None
 
@@ -207,28 +203,23 @@ if ebay_orders_file and ebay_fee_file:
     ebay_orders.columns = ebay_orders.columns.str.strip()
     ebay_fee.columns = ebay_fee.columns.str.strip()
 
-    # somma tutte le fee (incluse ads)
-    def calc_fee(row):
-        total = 0.0
-        for v in row:
-            try:
-                v = str(v)
-                if "-" in v:
-                    total += abs(to_float(v))
-            except:
-                pass
-        return total
+    # 🔥 QUI NON PARSIAMO PIÙ NULLA: SOMMA DIRETTA COLONNE
+    fee_cols = [
+        "Commissione sul valore finale - fissa",
+        "Commissione sul valore finale - variabile",
+        "Tariffa per l'adeguamento normativo",
+        "Tariffa Inserzioni sponsorizzate con strategia generale"
+    ]
 
-    ebay_fee["fee_totale"] = ebay_fee.apply(calc_fee, axis=1)
+    ebay_fee["fee_totale"] = ebay_fee[fee_cols].applymap(to_float).sum(axis=1)
+
     ebay_fee = ebay_fee.groupby("Numero ordine", as_index=False)["fee_totale"].sum()
 
     df = ebay_orders.merge(ebay_fee, on="Numero ordine", how="left")
 
     e = pd.DataFrame()
 
-    # 🔥 FIX CRITICO: apply corretto (NON più errore ValueError)
     e["Data ordine"] = df["Data vendita"].apply(parse_ebay_date).dt.strftime("%d/%m/%Y")
-
     e["Marketplace"] = "eBay"
     e["Paese (Mercato)"] = df["Paese dell'acquirente"].apply(map_country)
     e["Order ID (Codice Market)"] = df["Numero ordine"]
