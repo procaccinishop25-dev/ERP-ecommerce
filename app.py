@@ -71,7 +71,7 @@ def map_country(val):
     }.get(val, val[:2].upper())
 
 # -------------------------
-# DATE PARSERS
+# TEMU DATE
 # -------------------------
 def parse_temu_date(x):
     if pd.isna(x):
@@ -91,7 +91,9 @@ def parse_temu_date(x):
 
     return pd.to_datetime(x, errors="coerce")
 
-
+# -------------------------
+# EBAY DATE (FIX DEFINITIVO)
+# -------------------------
 def parse_ebay_date(x):
     if pd.isna(x):
         return pd.NaT
@@ -193,7 +195,7 @@ if temu_file:
     temu_df = t
 
 # -------------------------
-# EBAY (FIX DEFINITIVO + ADS INCLUSI)
+# EBAY (FIX DEFINITIVO)
 # -------------------------
 ebay_df = None
 
@@ -205,7 +207,7 @@ if ebay_orders_file and ebay_fee_file:
     ebay_orders.columns = ebay_orders.columns.str.strip()
     ebay_fee.columns = ebay_fee.columns.str.strip()
 
-    # somma TUTTE le fee negative (incluse ADS)
+    # somma tutte le fee (incluse ads)
     def calc_fee(row):
         total = 0.0
         for v in row:
@@ -224,7 +226,9 @@ if ebay_orders_file and ebay_fee_file:
 
     e = pd.DataFrame()
 
-    e["Data ordine"] = parse_ebay_date(df["Data vendita"]).dt.strftime("%d/%m/%Y")
+    # 🔥 FIX CRITICO: apply corretto (NON più errore ValueError)
+    e["Data ordine"] = df["Data vendita"].apply(parse_ebay_date).dt.strftime("%d/%m/%Y")
+
     e["Marketplace"] = "eBay"
     e["Paese (Mercato)"] = df["Paese dell'acquirente"].apply(map_country)
     e["Order ID (Codice Market)"] = df["Numero ordine"]
