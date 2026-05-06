@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client
+from io import BytesIO
 
 # -------------------------
 # SUPABASE
@@ -34,7 +35,7 @@ temu_file = st.file_uploader("📄 TEMU FILE", type=["csv", "txt", "xlsx"])
 
 
 # -------------------------
-# AMAZON FUNCTIONS
+# AMAZON
 # -------------------------
 def extract_code(sku):
     return str(sku).split("_")[1] if "_" in str(sku) else sku
@@ -65,7 +66,7 @@ def map_country(val):
 
 
 def temu_product(row):
-    sku = row["codice sku"]
+    sku = row["Codice SKU"]
     name = row["nome dell'articolo"]
 
     if pd.notna(sku) and str(sku).strip() != "":
@@ -76,10 +77,10 @@ def temu_product(row):
 def temu_gross(row):
     try:
         return (
-            float(row["totale prezzo base dopo lo sconto"] or 0)
-            + float(row["totale spedizione (imposte escluse)"] or 0)
-            + float(row["imposta sull'articolo"] or 0)
-            + float(row["imposta sulla spedizione"] or 0)
+            float(row["Totale prezzo base dopo lo sconto"] or 0)
+            + float(row["Totale spedizione (imposte escluse)"] or 0)
+            + float(row["Imposta sull'articolo"] or 0)
+            + float(row["Imposta sulla spedizione"] or 0)
         )
     except:
         return 0
@@ -109,7 +110,6 @@ if orders_file and comm_file:
     ).dt.strftime("%d/%m/%Y")
 
     df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
-
     df["Prodotto"] = df["sku"].apply(map_sku)
 
     amazon_df = df[[
@@ -142,7 +142,12 @@ if temu_file:
     else:
         temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
 
-    temu.columns = temu.columns.str.strip()
+    # 🔥 FIX COLONNE (minimo ma efficace)
+    temu.columns = (
+        temu.columns
+        .str.replace("\ufeff", "", regex=True)
+        .str.strip()
+    )
 
     t = pd.DataFrame()
 
@@ -161,19 +166,27 @@ if temu_file:
     t["Marketplace"] = "Temu"
 
     # -------------------------
-    # PAESE
+    # PAESE (ESATTO COME FILE)
     # -------------------------
-    t["Paese (Mercato)"] = temu["paese di spedizione"].apply(map_country)
+    t["Paese (Mercato)"] = temu["Paese di spedizione"].apply(map_country)
 
     # -------------------------
     # ORDER ID
     # -------------------------
-    t["Order ID (Codice Market)"] = temu["id ordine"]
+    t["Order ID (Codice Market)"] = temu["ID Ordine"]
 
     # -------------------------
     # PRODOTTO
     # -------------------------
-    t["Prodotto"] = temu.apply(temu_product, axis=1)
+    def get_product(row):
+        sku = row["Codice SKU"]
+        name = row["nome dell'articolo"]
+
+        if pd.notna(sku) and str(sku).strip() != "":
+            return sku
+        return name
+
+    t["Prodotto"] = temu.apply(get_product, axis=1)
 
     # -------------------------
     # QUANTITÀ
@@ -210,18 +223,14 @@ if temu_df is not None:
 if frames:
 
     final_df = pd.concat(frames, ignore_index=True)
-
     final_df = final_df.sort_values("Data ordine", ascending=True)
 
     st.success("Elaborazione completata!")
-
     st.dataframe(final_df)
 
     # -------------------------
     # EXPORT EXCEL
     # -------------------------
-    from io import BytesIO
-
     output = BytesIO()
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
