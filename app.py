@@ -14,7 +14,7 @@ st.title("📦 Multi Marketplace Processor")
 
 
 # -------------------------
-# PRODOTTI
+# PRODOTTI SUPABASE
 # -------------------------
 @st.cache_data
 def load_products():
@@ -26,7 +26,7 @@ product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 
 
 # -------------------------
-# UPLOAD
+# UPLOAD FILE
 # -------------------------
 orders_file = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
 comm_file = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
@@ -34,7 +34,7 @@ temu_file = st.file_uploader("📄 TEMU FILE", type=["csv", "txt", "xlsx"])
 
 
 # -------------------------
-# FUNZIONI AMAZON
+# AMAZON FUNCTIONS
 # -------------------------
 def extract_code(sku):
     return str(sku).split("_")[1] if "_" in str(sku) else sku
@@ -52,41 +52,34 @@ def clean_marketplace(val):
 # -------------------------
 # TEMU FUNCTIONS
 # -------------------------
-def parse_temu_date(date_str):
-    dt = pd.to_datetime(date_str, errors="coerce", dayfirst=True)
-    if pd.isna(dt):
-        return ""
-    return dt.strftime("%d/%m/%Y")
-
-
 def map_country(val):
     if pd.isna(val):
         return ""
-    mapping = {
-        "Italy": "IT",
-        "Germany": "DE",
-        "France": "FR",
-        "Spain": "ES"
-    }
-    return mapping.get(val, str(val)[:2].upper())
+    val = str(val).strip().lower()
+    return {
+        "italy": "IT",
+        "germany": "DE",
+        "france": "FR",
+        "spain": "ES"
+    }.get(val, val[:2].upper())
 
 
 def temu_product(row):
-    sku = row.get("codice sku")
-    name = row.get("nome dell'articolo")
+    sku = row["codice sku"]
+    name = row["nome dell'articolo"]
 
     if pd.notna(sku) and str(sku).strip() != "":
         return sku
-    return name if pd.notna(name) else sku
+    return name
 
 
 def temu_gross(row):
     try:
         return (
-            float(row.get("totale prezzo base dopo lo sconto", 0) or 0)
-            + float(row.get("totale spedizione (imposte escluse)", 0) or 0)
-            + float(row.get("imposta sull'articolo", 0) or 0)
-            + float(row.get("imposta sulla spedizione", 0) or 0)
+            float(row["totale prezzo base dopo lo sconto"] or 0)
+            + float(row["totale spedizione (imposte escluse)"] or 0)
+            + float(row["imposta sull'articolo"] or 0)
+            + float(row["imposta sulla spedizione"] or 0)
         )
     except:
         return 0
@@ -109,13 +102,11 @@ if orders_file and comm_file:
 
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
-    df["Data ordine_raw"] = pd.to_datetime(
+    df["Data ordine"] = pd.to_datetime(
         df["purchase-date"],
         errors="coerce",
         utc=True
-    )
-
-    df["Data ordine"] = df["Data ordine_raw"].dt.strftime("%d/%m/%Y")
+    ).dt.strftime("%d/%m/%Y")
 
     df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
 
@@ -129,8 +120,7 @@ if orders_file and comm_file:
         "Prodotto",
         "quantity",
         "item-price",
-        "fee",
-        "Data ordine_raw"
+        "fee"
     ]].rename(columns={
         "ship-country": "Paese (Mercato)",
         "amazon-order-id": "Order ID (Codice Market)",
@@ -141,7 +131,7 @@ if orders_file and comm_file:
 
 
 # -------------------------
-# TEMU PROCESS
+# TEMU PROCESS (FIX DEFINITIVO)
 # -------------------------
 temu_df = None
 
@@ -152,36 +142,55 @@ if temu_file:
     else:
         temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
 
-    temu.columns = temu.columns.str.strip().str.lower()
+    temu.columns = temu.columns.str.strip()
 
     t = pd.DataFrame()
 
-    # DATA
-    date_col = [c for c in temu.columns if "acquisto" in c][0]
-    t["Data ordine"] = temu[date_col].apply(parse_temu_date)
+    # -------------------------
+    # DATA ORDINE
+    # -------------------------
+    t["Data ordine"] = pd.to_datetime(
+        temu["data di acquisto"],
+        errors="coerce",
+        dayfirst=True
+    ).dt.strftime("%d/%m/%Y")
 
+    # -------------------------
     # MARKETPLACE
+    # -------------------------
     t["Marketplace"] = "Temu"
 
+    # -------------------------
     # PAESE
-    country_col = [c for c in temu.columns if "spedizione" in c][0]
-    t["Paese (Mercato)"] = temu[country_col].apply(map_country)
+    # -------------------------
+    t["Paese (Mercato)"] = temu["paese di spedizione"].apply(map_country)
 
+    # -------------------------
     # ORDER ID
-    order_col = [c for c in temu.columns if "id ordine" in c][0]
-    t["Order ID (Codice Market)"] = temu[order_col]
+    # -------------------------
+    t["Order ID (Codice Market)"] = temu["id ordine"]
 
+    # -------------------------
     # PRODOTTO
+    # -------------------------
     t["Prodotto"] = temu.apply(temu_product, axis=1)
 
+    # -------------------------
     # QUANTITÀ
-    qty_col = [c for c in temu.columns if "quantità" in c][0]
-    t["Quantità ordinata"] = temu[qty_col]
+    # -------------------------
+    t["Quantità ordinata"] = pd.to_numeric(
+        temu["quantità acquistata"],
+        errors="coerce"
+    ).fillna(0)
 
-    # FATTURATO (CALCOLO COMPLETO)
+    # -------------------------
+    # FATTURATO
+    # -------------------------
     t["Fatturato (Lordo)"] = temu.apply(temu_gross, axis=1)
 
+    # -------------------------
     # FEE
+    # -------------------------
     t["Fee (€)"] = 0.00
 
     temu_df = t
@@ -209,7 +218,7 @@ if frames:
     st.dataframe(final_df)
 
     # -------------------------
-    # EXPORT EXCEL (NON CSV)
+    # EXPORT EXCEL
     # -------------------------
     from io import BytesIO
 
