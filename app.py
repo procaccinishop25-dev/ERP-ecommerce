@@ -12,7 +12,7 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-st.title("📦 ERP Multi Marketplace")
+st.title("📦 ERP Multi Marketplace Stable")
 
 
 # -------------------------
@@ -36,7 +36,7 @@ temu_file = st.file_uploader("📄 TEMU FILE", type=["csv", "txt", "xlsx"])
 
 
 # -------------------------
-# DATA LAYER CORE
+# UTILS GLOBALI
 # -------------------------
 def normalize_columns(df):
     df.columns = (
@@ -44,15 +44,15 @@ def normalize_columns(df):
         .str.replace("\ufeff", "", regex=True)
         .str.replace("\n", " ", regex=True)
         .str.strip()
-        .str.lower()
     )
     return df
 
 
 def find_col(df, keyword):
-    keyword = keyword.lower()
+    keyword = keyword.lower().strip()
     for c in df.columns:
-        if keyword in c:
+        c_clean = str(c).lower().strip()
+        if keyword in c_clean or c_clean in keyword:
             return c
     return None
 
@@ -77,7 +77,7 @@ def map_country(val):
 
 
 # -------------------------
-# AMAZON LOGIC
+# AMAZON
 # -------------------------
 def extract_code(sku):
     return str(sku).split("_")[1] if "_" in str(sku) else sku
@@ -120,98 +120,105 @@ if amazon_orders and amazon_comm:
 
 
 # -------------------------
-# TEMU ENGINE (STABILE)
+# TEMU (STABILE DEFINITIVO)
 # -------------------------
 temu_df = None
 
 if temu_file:
 
-    if temu_file.name.endswith(".xlsx"):
-        temu = pd.read_excel(temu_file)
-    else:
-        temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
+    try:
+        if temu_file.name.endswith(".xlsx"):
+            temu = pd.read_excel(temu_file)
+        else:
+            temu = pd.read_csv(temu_file, sep="\t", encoding="utf-8", on_bad_lines="skip")
 
-    temu = normalize_columns(temu)
+        temu = normalize_columns(temu)
 
-    # colonne dinamiche
-    date_col = find_col(temu, "acquisto")
-    country_col = find_col(temu, "paese")
-    order_col = find_col(temu, "id ordine")
-    sku_col = find_col(temu, "codice sku")
-    qty_col = find_col(temu, "quantità")
+        # -------------------------
+        # COLONNE DINAMICHE
+        # -------------------------
+        date_col = find_col(temu, "acquisto")
+        country_col = find_col(temu, "paese")
+        order_col = find_col(temu, "id ordine")
+        sku_col = find_col(temu, "codice sku")
+        qty_col = find_col(temu, "quantità")
 
-    # -------------------------
-    # DATA TEMU FIX (ROBUSTO)
-    # -------------------------
-    def parse_temu_date(x):
-        if pd.isna(x):
-            return pd.NaT
+        # 🔥 CONTROLLO SICUREZZA
+        if not all([date_col, country_col, order_col, qty_col]):
+            st.error("❌ File Temu non riconosciuto correttamente")
+            st.write("Colonne trovate:", temu.columns.tolist())
+            st.stop()
 
-        x = str(x)
-        x = re.sub(r"CEST.*", "", x).strip()
+        # -------------------------
+        # DATA TEMU FIX
+        # -------------------------
+        def parse_temu_date(x):
+            if pd.isna(x):
+                return pd.NaT
 
-        mesi = {
-            "gen":"Jan","feb":"Feb","mar":"Mar","apr":"Apr",
-            "mag":"May","giu":"Jun","lug":"Jul","ago":"Aug",
-            "set":"Sep","ott":"Oct","nov":"Nov","dic":"Dec"
-        }
+            x = str(x)
+            x = re.sub(r"CEST.*", "", x).strip()
 
-        for it, en in mesi.items():
-            x = x.replace(it, en)
+            mesi = {
+                "gen":"Jan","feb":"Feb","mar":"Mar","apr":"Apr",
+                "mag":"May","giu":"Jun","lug":"Jul","ago":"Aug",
+                "set":"Sep","ott":"Oct","nov":"Nov","dic":"Dec"
+            }
 
-        return pd.to_datetime(x, errors="coerce")
+            for it, en in mesi.items():
+                x = x.replace(it, en)
 
-
-    temu_df = pd.DataFrame()
-
-    temu_df["Data ordine"] = temu[date_col].apply(parse_temu_date).dt.strftime("%d/%m/%Y")
-    temu_df["Marketplace"] = "Temu"
-    temu_df["Order ID"] = temu[order_col]
-    temu_df["Paese"] = temu[country_col].apply(map_country)
-
-    def get_product(row):
-        sku = row.get(sku_col)
-        name = row.get("nome dell'articolo")
-
-        if pd.notna(sku) and str(sku).strip() != "":
-            return sku
-        return name
-
-    temu_df["Prodotto"] = temu.apply(get_product, axis=1)
-    temu_df["Quantità"] = pd.to_numeric(temu[qty_col], errors="coerce").fillna(0)
-
-    # -------------------------
-    # FATTURATO TEMU (SAFE)
-    # -------------------------
-    def get_col(keyword):
-        for c in temu.columns:
-            if keyword in c:
-                return c
-        return None
+            return pd.to_datetime(x, errors="coerce")
 
 
-    c1 = get_col("prezzo base dopo")
-    c2 = get_col("spedizione")
-    c3 = get_col("imposta sull'articolo")
-    c4 = get_col("imposta sulla spedizione")
+        temu_df = pd.DataFrame()
 
+        temu_df["Data ordine"] = temu[date_col].apply(parse_temu_date).dt.strftime("%d/%m/%Y")
+        temu_df["Marketplace"] = "Temu"
+        temu_df["Order ID"] = temu[order_col]
+        temu_df["Paese"] = temu[country_col].apply(map_country)
+        temu_df["Quantità"] = pd.to_numeric(temu[qty_col], errors="coerce").fillna(0)
 
-    def safe(col):
-        return temu[col].apply(to_float) if col else 0
+        # -------------------------
+        # PRODOTTO
+        # -------------------------
+        def get_product(row):
+            sku = row.get(sku_col)
+            name = row.get("nome dell'articolo")
 
+            if pd.notna(sku) and str(sku).strip() != "":
+                return sku
+            return name
 
-    temu_df["Fatturato"] = (
-        safe(c1)
-        + safe(c2)
-        + safe(c3)
-        + safe(c4)
-    )
+        temu_df["Prodotto"] = temu.apply(get_product, axis=1)
 
-    temu_df["Fee"] = 0.0
+        # -------------------------
+        # FATTURATO
+        # -------------------------
+        def get_col(keyword):
+            for c in temu.columns:
+                if keyword in c:
+                    return c
+            return None
+
+        def safe(col):
+            return temu[col].apply(to_float) if col else 0
+
+        c1 = get_col("prezzo base dopo")
+        c2 = get_col("spedizione")
+        c3 = get_col("imposta sull'articolo")
+        c4 = get_col("imposta sulla spedizione")
+
+        temu_df["Fatturato"] = safe(c1) + safe(c2) + safe(c3) + safe(c4)
+
+        temu_df["Fee"] = 0.0
+
+    except Exception as e:
+        st.error(f"Errore Temu: {e}")
 
 
 # -------------------------
-# MERGE FINALE ERP
+# MERGE FINALE
 # -------------------------
 frames = []
 
