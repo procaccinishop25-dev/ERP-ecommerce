@@ -12,8 +12,9 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.title("📦 Multi Marketplace Order Processor")
 
+
 # -------------------------
-# PRODOTTI (CACHE)
+# PRODOTTI SUPABASE
 # -------------------------
 @st.cache_data
 def load_products():
@@ -29,45 +30,32 @@ product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 # -------------------------
 amazon_orders = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
 amazon_comm = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
-
-temu_file = st.file_uploader(
-    "📄 Temu FILE",
-    type=["csv", "txt", "xlsx"]
-)
+temu_file = st.file_uploader("📄 Temu FILE", type=["csv", "txt", "xlsx"])
 
 
 # -------------------------
 # AMAZON FUNCTIONS
 # -------------------------
 def clean_marketplace(val):
-    if pd.isna(val):
-        return val
-    return str(val).split(".")[0]
+    return str(val).split(".")[0] if pd.notna(val) else val
 
 
 def extract_code(sku):
-    if "_" in str(sku):
-        return str(sku).split("_")[1]
-    return sku
+    return str(sku).split("_")[1] if "_" in str(sku) else sku
 
 
-def map_sku(original_sku):
-    code = extract_code(original_sku)
-    product_name = product_map.get(code)
-
-    if product_name:
-        return f"{product_name} - {code}"
-
-    return original_sku
+def map_sku(sku):
+    code = extract_code(sku)
+    return f"{product_map.get(code)} - {code}" if product_map.get(code) else sku
 
 
 # -------------------------
 # TEMU FUNCTIONS
 # -------------------------
 def parse_temu_date(date_str):
-    dt = pd.to_datetime(date_str, errors="coerce", dayfirst=True)
+    dt = pd.to_datetime(date_str, errors="coerce", dayfirst=True, utc=True)
     if pd.isna(dt):
-        return None
+        return ""
     return dt.strftime("%d/%m/%Y")
 
 
@@ -89,11 +77,7 @@ def temu_product(row):
 
     if pd.notna(sku) and str(sku).strip() != "":
         return sku
-
-    if pd.notna(name):
-        return name
-
-    return sku
+    return name if pd.notna(name) else sku
 
 
 def temu_gross(row):
@@ -125,13 +109,11 @@ if amazon_orders and amazon_comm:
 
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
-    df["Data ordine_raw"] = pd.to_datetime(
+    df["Data ordine"] = pd.to_datetime(
         df["purchase-date"],
         errors="coerce",
         utc=True
-    )
-
-    df["Data ordine"] = df["Data ordine_raw"].dt.strftime("%d/%m/%Y")
+    ).dt.strftime("%d/%m/%Y")
 
     df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
 
@@ -139,15 +121,16 @@ if amazon_orders and amazon_comm:
 
     amazon_df = df[[
         "Data ordine",
-        "Marketplace",
+        "sales-channel",
         "ship-country",
         "amazon-order-id",
         "Prodotto (SKU o nome)",
         "quantity",
         "item-price",
         "fee",
-        "Data ordine_raw"
+        "purchase-date"
     ]].rename(columns={
+        "sales-channel": "Marketplace",
         "ship-country": "Paese (Mercato)",
         "amazon-order-id": "Order ID (Codice Market)",
         "quantity": "Quantità ordinata",
@@ -157,13 +140,12 @@ if amazon_orders and amazon_comm:
 
 
 # -------------------------
-# TEMU PROCESS (CSV + EXCEL SUPPORT)
+# TEMU PROCESS (EXCEL + CSV)
 # -------------------------
 temu_df = None
 
 if temu_file:
 
-    # 🔥 AUTO DETECT EXCEL O CSV
     if temu_file.name.endswith(".xlsx"):
         temu = pd.read_excel(temu_file)
     else:
@@ -179,14 +161,14 @@ if temu_file:
 
     t = pd.DataFrame()
 
-    # DATA (robusto)
+    # DATA TEMU (FORMATO COMPLESSO → DD/MM/YYYY)
     date_col = [c for c in temu.columns if "acquisto" in c][0]
     t["Data ordine"] = temu[date_col].apply(parse_temu_date)
 
     # MARKETPLACE
     t["Marketplace"] = "Temu"
 
-    # PAESE (robusto)
+    # PAESE
     country_col = [c for c in temu.columns if "spedizione" in c][0]
     t["Paese (Mercato)"] = temu[country_col].apply(map_country)
 
@@ -207,13 +189,6 @@ if temu_file:
     # FEE
     t["Fee (€)"] = 0.00
 
-    # DATA RAW
-    t["Data ordine_raw"] = pd.to_datetime(
-        t["Data ordine"],
-        dayfirst=True,
-        errors="coerce"
-    )
-
     temu_df = t
 
 
@@ -232,13 +207,9 @@ if frames:
 
     final_df = pd.concat(frames, ignore_index=True)
 
-    final_df = final_df.sort_values("Data ordine_raw", ascending=True)
+    # ordinamento per data (string DD/MM/YYYY ok)
+    final_df = final_df.sort_values("Data ordine", ascending=True)
 
-    final_df = final_df.drop(columns=["Data ordine_raw"])
-
-    # -------------------------
-    # OUTPUT
-    # -------------------------
     st.success("Elaborazione completata!")
 
     st.dataframe(final_df)
