@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import re
 from supabase import create_client
 from io import BytesIO
 
@@ -27,7 +28,7 @@ product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 
 
 # -------------------------
-# UPLOAD FILE
+# UPLOAD
 # -------------------------
 orders_file = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
 comm_file = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
@@ -35,7 +36,7 @@ temu_file = st.file_uploader("📄 TEMU FILE", type=["csv", "txt", "xlsx"])
 
 
 # -------------------------
-# AMAZON
+# AMAZON UTILS
 # -------------------------
 def extract_code(sku):
     return str(sku).split("_")[1] if "_" in str(sku) else sku
@@ -51,7 +52,7 @@ def clean_marketplace(val):
 
 
 # -------------------------
-# TEMU UTILS (ROBUSTO)
+# TEMU UTILS
 # -------------------------
 def find_col(df, keyword):
     for c in df.columns:
@@ -77,6 +78,38 @@ def map_country(val):
         "france": "FR",
         "spain": "ES"
     }.get(val, val[:2].upper())
+
+
+# 🔥 FIX DATA TEMU DEFINITIVO
+def parse_temu_date(x):
+    if pd.isna(x):
+        return pd.NaT
+
+    x = str(x)
+
+    # rimuove timezone sporca
+    x = re.sub(r"CEST.*", "", x).strip()
+
+    mesi = {
+        "gen": "Jan",
+        "feb": "Feb",
+        "mar": "Mar",
+        "apr": "Apr",
+        "mag": "May",
+        "giu": "Jun",
+        "lug": "Jul",
+        "ago": "Aug",
+        "set": "Sep",
+        "ott": "Oct",
+        "nov": "Nov",
+        "dic": "Dec"
+    }
+
+    for it, en in mesi.items():
+        if f" {it} " in x:
+            x = x.replace(it, en)
+
+    return pd.to_datetime(x, errors="coerce")
 
 
 # -------------------------
@@ -124,7 +157,7 @@ if orders_file and comm_file:
 
 
 # -------------------------
-# TEMU PROCESS (FIX DEFINITIVO)
+# TEMU PROCESS (FINAL FIX)
 # -------------------------
 temu_df = None
 
@@ -143,9 +176,7 @@ if temu_file:
         .str.strip()
     )
 
-    # -------------------------
-    # TROVA COLONNE DINAMICHE
-    # -------------------------
+    # colonne dinamiche
     date_col = find_col(temu, "acquisto")
     country_col = find_col(temu, "paese")
     order_col = find_col(temu, "id ordine")
@@ -155,12 +186,9 @@ if temu_file:
     t = pd.DataFrame()
 
     # -------------------------
-    # DATA
+    # DATA (FIX DEFINITIVO)
     # -------------------------
-    t["Data ordine"] = pd.to_datetime(
-        temu[date_col],
-        errors="coerce"
-    ).dt.strftime("%d/%m/%Y")
+    t["Data ordine"] = temu[date_col].apply(parse_temu_date).dt.strftime("%d/%m/%Y")
 
     # -------------------------
     # MARKETPLACE
@@ -199,7 +227,7 @@ if temu_file:
     ).fillna(0)
 
     # -------------------------
-    # FATTURATO (ROBUSTO)
+    # FATTURATO
     # -------------------------
     t["Fatturato (Lordo)"] = (
         temu["Totale prezzo base dopo lo sconto"].apply(to_float)
