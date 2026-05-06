@@ -31,8 +31,8 @@ product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 orders_file = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
 comm_file = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
 temu_file = st.file_uploader("📄 TEMU FILE", type=["csv", "txt", "xlsx"])
-ebay_orders_file = st.file_uploader("📄 eBay ORDINI", type=["csv", "txt"])
-ebay_fee_file = st.file_uploader("📄 eBay COMMISSIONI", type=["csv", "txt"])
+ebay_orders_file = st.file_uploader("📄 eBay ORDINI", type=["csv", "txt", "xlsx"])
+ebay_fee_file = st.file_uploader("📄 eBay COMMISSIONI", type=["csv", "txt", "xlsx"])
 
 # -------------------------
 # UTILS
@@ -71,7 +71,7 @@ def map_country(val):
     }.get(val, val[:2].upper())
 
 # -------------------------
-# TEMU DATA FIX
+# TEMU DATE FIX
 # -------------------------
 def parse_temu_date(x):
     if pd.isna(x):
@@ -195,14 +195,20 @@ ebay_df = None
 
 if ebay_orders_file and ebay_fee_file:
 
-    ebay_orders = pd.read_csv(ebay_orders_file, sep="\t", encoding="utf-8")
-    ebay_fee = pd.read_csv(ebay_fee_file, sep=",", encoding="utf-8")
+    # lettura Excel o CSV
+    if ebay_orders_file.name.endswith(".xlsx"):
+        ebay_orders = pd.read_excel(ebay_orders_file)
+    else:
+        ebay_orders = pd.read_csv(ebay_orders_file, sep="\t", encoding="utf-8")
 
-    # pulizia
+    if ebay_fee_file.name.endswith(".xlsx"):
+        ebay_fee = pd.read_excel(ebay_fee_file)
+    else:
+        ebay_fee = pd.read_csv(ebay_fee_file, sep=",", encoding="utf-8")
+
     ebay_orders.columns = ebay_orders.columns.str.strip()
     ebay_fee.columns = ebay_fee.columns.str.strip()
 
-    # fee pulite
     def clean_fee(x):
         return abs(to_float(x))
 
@@ -212,7 +218,6 @@ if ebay_orders_file and ebay_fee_file:
         + ebay_fee["Tariffa per l'adeguamento normativo"].apply(clean_fee)
     )
 
-    # raggruppa per sicurezza
     ebay_fee = ebay_fee.groupby("Numero ordine")["fee_totale"].sum().reset_index()
 
     df = ebay_orders.merge(ebay_fee, on="Numero ordine", how="left")
@@ -268,7 +273,6 @@ if frames:
     st.success("Elaborazione completata!")
     st.dataframe(final_df)
 
-    # export excel
     output = BytesIO()
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
