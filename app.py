@@ -15,6 +15,14 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.title("📦 Multi Marketplace Processor")
 
 # -------------------------
+# LOG SYSTEM (NUOVO)
+# -------------------------
+logs = []
+
+def add_log(msg):
+    logs.append(msg)
+
+# -------------------------
 # PRODOTTI SUPABASE
 # -------------------------
 @st.cache_data
@@ -47,6 +55,7 @@ def map_sku(original_sku):
     if product_name:
         return f"{product_name} - {code}"
 
+    add_log(f"SKU non trovato nel mapping: {original_sku}")
     return original_sku
 
 def clean_marketplace(val):
@@ -94,7 +103,6 @@ if orders_file and comm_file:
 
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
-    # ✔ FIX: senza orario finale
     df["Data ordine"] = pd.to_datetime(
         df["purchase-date"],
         errors="coerce",
@@ -136,12 +144,12 @@ if temu_file:
     qty_col = find_col(temu, "quantità")
 
     if date_col is None:
+        add_log("Errore: colonna data Temu non trovata")
         st.error("❌ Colonna data Temu non trovata")
         st.stop()
 
     t = pd.DataFrame()
 
-    # ✔ FIX: elimina orario subito
     t["Data ordine"] = pd.to_datetime(
         temu[date_col],
         errors="coerce"
@@ -168,7 +176,10 @@ if temu_file:
     ).fillna(0)
 
     def safe(df, col):
-        return df[col].apply(to_float) if col in df.columns else 0
+        if col not in df.columns:
+            add_log(f"Colonna mancante Temu: {col}")
+            return 0
+        return df[col].apply(to_float)
 
     t["Fatturato (Lordo)"] = (
         safe(temu, "Totale prezzo base dopo lo sconto")
@@ -209,7 +220,6 @@ if ebay_orders_file and ebay_fee_file:
 
     e = pd.DataFrame()
 
-    # ✔ FIX: senza orario
     e["Data ordine"] = pd.to_datetime(
         df["Data vendita"],
         errors="coerce"
@@ -249,10 +259,17 @@ if frames:
     st.success("Elaborazione completata!")
     st.dataframe(final_df)
 
+    # -------------------------
+    # LOG COLUMN (NUOVO)
+    # -------------------------
+    if logs:
+        final_df["Log"] = " | ".join(logs)
+    else:
+        final_df["Log"] = ""
+
     output = BytesIO()
     export_df = final_df.copy()
 
-    # ✔ EXPORT FINALE SENZA ORARIO
     export_df["Data ordine"] = export_df["Data ordine"].astype(str)
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
