@@ -47,7 +47,7 @@ def map_sku(original_sku):
     if product_name:
         return f"{product_name} - {code}"
 
-    return original_sku
+    return f"SKU NON TROVATO - {original_sku}"
 
 def clean_marketplace(val):
     return str(val).split(".")[0] if pd.notna(val) else val
@@ -96,9 +96,9 @@ def build_errors(sku_ok, fee_ok, price_ok, qty_ok, date_ok):
 
     return "OK" if len(errors) == 0 else " | ".join(errors)
 
-# -------------------------
+# =====================================================
 # AMAZON
-# -------------------------
+# =====================================================
 amazon_df = None
 
 if orders_file and comm_file:
@@ -113,6 +113,11 @@ if orders_file and comm_file:
 
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
+    # SAFE NUMERIC FIX
+    df["item-price"] = df["item-price"].fillna(0)
+    df["fee"] = df["fee"].fillna(0)
+    df["quantity"] = df["quantity"].fillna(0)
+
     df["Data ordine"] = pd.to_datetime(
         df["purchase-date"],
         errors="coerce",
@@ -124,10 +129,10 @@ if orders_file and comm_file:
 
     df["Errori riga"] = [
         build_errors(
-            sku_ok=pd.notna(sku),
-            fee_ok=pd.notna(fee),
-            price_ok=pd.notna(price),
-            qty_ok=pd.notna(qty),
+            sku_ok="SKU NON TROVATO" not in map_sku(sku),
+            fee_ok=fee is not None,
+            price_ok=price is not None,
+            qty_ok=qty is not None,
             date_ok=pd.notna(date)
         )
         for sku, fee, price, qty, date in zip(
@@ -150,9 +155,9 @@ if orders_file and comm_file:
         "fee": "Fee (€)"
     })
 
-# -------------------------
+# =====================================================
 # TEMU
-# -------------------------
+# =====================================================
 temu_df = None
 
 if temu_file:
@@ -169,10 +174,6 @@ if temu_file:
     order_col = find_col(temu, "id ordine")
     sku_col = find_col(temu, "codice sku")
     qty_col = find_col(temu, "quantità")
-
-    if date_col is None:
-        st.error("❌ Colonna data Temu non trovata")
-        st.stop()
 
     t = pd.DataFrame()
 
@@ -206,10 +207,10 @@ if temu_file:
 
     t["Errori riga"] = [
         build_errors(
-            sku_ok=pd.notna(sku),
+            sku_ok="SKU NON TROVATO" not in str(map_sku(sku)),
             fee_ok=True,
             price_ok=True,
-            qty_ok=pd.notna(qty),
+            qty_ok=qty is not None,
             date_ok=pd.notna(date)
         )
         for sku, qty, date in zip(
@@ -221,9 +222,9 @@ if temu_file:
 
     temu_df = t
 
-# -------------------------
+# =====================================================
 # EBAY
-# -------------------------
+# =====================================================
 ebay_df = None
 
 if ebay_orders_file and ebay_fee_file:
@@ -234,18 +235,15 @@ if ebay_orders_file and ebay_fee_file:
     ebay_orders.columns = ebay_orders.columns.str.strip()
     ebay_fee.columns = ebay_fee.columns.str.strip()
 
-    def clean_fee(x):
-        return abs(to_float(x))
+    ebay_fee["fee_totale"] = ebay_fee.fillna(0).select_dtypes(include="number").sum(axis=1)
 
-    ebay_fee["fee_totale"] = (
-        ebay_fee["Commissione sul valore finale - fissa"].apply(clean_fee)
-        + ebay_fee["Commissione sul valore finale - variabile"].apply(clean_fee)
-        + ebay_fee["Tariffa per l'adeguamento normativo"].apply(clean_fee)
+    df = ebay_orders.merge(
+        ebay_fee.groupby("Numero ordine")["fee_totale"].sum().reset_index(),
+        on="Numero ordine",
+        how="left"
     )
 
-    ebay_fee = ebay_fee.groupby("Numero ordine")["fee_totale"].sum().reset_index()
-
-    df = ebay_orders.merge(ebay_fee, on="Numero ordine", how="left")
+    df = df.fillna(0)
 
     e = pd.DataFrame()
 
@@ -276,9 +274,9 @@ if ebay_orders_file and ebay_fee_file:
     e["Errori riga"] = [
         build_errors(
             sku_ok=True,
-            fee_ok=pd.notna(fee),
-            price_ok=pd.notna(price),
-            qty_ok=pd.notna(qty),
+            fee_ok=fee is not None,
+            price_ok=price is not None,
+            qty_ok=qty is not None,
             date_ok=pd.notna(date)
         )
         for fee, price, qty, date in zip(
@@ -291,9 +289,9 @@ if ebay_orders_file and ebay_fee_file:
 
     ebay_df = e
 
-# -------------------------
+# =====================================================
 # MERGE FINALE
-# -------------------------
+# =====================================================
 frames = [f for f in [amazon_df, temu_df, ebay_df] if f is not None]
 
 if frames:
