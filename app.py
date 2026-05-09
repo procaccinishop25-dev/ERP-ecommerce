@@ -42,7 +42,12 @@ def extract_code(sku):
 
 def map_sku(original_sku):
     code = extract_code(original_sku)
-    return f"{product_map.get(code)} - {code}" if product_map.get(code) else original_sku
+    product_name = product_map.get(code)
+
+    if product_name:
+        return f"{product_name} - {code}"
+
+    return original_sku
 
 def clean_marketplace(val):
     return str(val).split(".")[0] if pd.notna(val) else val
@@ -55,7 +60,9 @@ def find_col(df, keyword):
 
 def to_float(x):
     try:
-        return float(str(x).replace(",", ".").replace("€", "").replace("-", "").strip())
+        s = str(x)
+        s = s.replace("€", "").replace(".", "").replace(",", ".").strip()
+        return float(s)
     except:
         return 0.0
 
@@ -69,28 +76,6 @@ def map_country(val):
         "france": "FR",
         "spain": "ES"
     }.get(val, val[:2].upper())
-
-# -------------------------
-# TEMU DATE FIX
-# -------------------------
-def parse_temu_date(x):
-    if pd.isna(x):
-        return pd.NaT
-
-    x = str(x)
-    x = re.sub(r"CEST.*", "", x).strip()
-
-    mesi = {
-        "gen": "Jan","feb": "Feb","mar": "Mar","apr": "Apr",
-        "mag": "May","giu": "Jun","lug": "Jul","ago": "Aug",
-        "set": "Sep","ott": "Oct","nov": "Nov","dic": "Dec"
-    }
-
-    for it, en in mesi.items():
-        if f" {it} " in x:
-            x = x.replace(it, en)
-
-    return pd.to_datetime(x, errors="coerce")
 
 # -------------------------
 # AMAZON
@@ -110,8 +95,10 @@ if orders_file and comm_file:
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
     df["Data ordine"] = pd.to_datetime(
-        df["purchase-date"], errors="coerce", utc=True
-    ).dt.strftime("%d/%m/%Y")
+        df["purchase-date"],
+        errors="coerce",
+        utc=True
+    ).dt.tz_convert("Europe/Rome").dt.tz_localize(None)
 
     df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
     df["Prodotto"] = df["sku"].apply(map_sku)
@@ -149,15 +136,15 @@ if temu_file:
 
     if date_col is None:
         st.error("❌ Colonna data Temu non trovata")
-        st.write(temu.columns.tolist())
         st.stop()
 
     t = pd.DataFrame()
 
+    # DATA già standard (consigliato)
     t["Data ordine"] = pd.to_datetime(
-        temu[date_col].astype(str).apply(parse_temu_date),
+        temu[date_col],
         errors="coerce"
-    ).dt.strftime("%d/%m/%Y")
+    )
 
     t["Marketplace"] = "Temu"
     t["Paese (Mercato)"] = temu[country_col].apply(map_country)
@@ -166,12 +153,17 @@ if temu_file:
     def get_product(row):
         sku = row.get(sku_col)
         name = row.get("nome dell'articolo")
-        return sku if pd.notna(sku) and str(sku).strip() != "" else name
+
+        if pd.notna(sku) and str(sku).strip() != "":
+            return map_sku(sku)
+
+        return name
 
     t["Prodotto"] = temu.apply(get_product, axis=1)
 
     t["Quantità ordinata"] = pd.to_numeric(
-        temu[qty_col], errors="coerce"
+        temu[qty_col],
+        errors="coerce"
     ).fillna(0)
 
     def safe(df, col):
@@ -184,7 +176,7 @@ if temu_file:
         + safe(temu, "Imposta sulla spedizione")
     )
 
-    t["Fee (€)"] = 0.00
+    t["Fee (€)"] = 0.0
 
     temu_df = t
 
@@ -195,16 +187,8 @@ ebay_df = None
 
 if ebay_orders_file and ebay_fee_file:
 
-    # lettura Excel o CSV
-    if ebay_orders_file.name.endswith(".xlsx"):
-        ebay_orders = pd.read_excel(ebay_orders_file)
-    else:
-        ebay_orders = pd.read_csv(ebay_orders_file, sep="\t", encoding="utf-8")
-
-    if ebay_fee_file.name.endswith(".xlsx"):
-        ebay_fee = pd.read_excel(ebay_fee_file)
-    else:
-        ebay_fee = pd.read_csv(ebay_fee_file, sep=",", encoding="utf-8")
+    ebay_orders = pd.read_excel(ebay_orders_file) if ebay_orders_file.name.endswith(".xlsx") else pd.read_csv(ebay_orders_file, sep="\t")
+    ebay_fee = pd.read_excel(ebay_fee_file) if ebay_fee_file.name.endswith(".xlsx") else pd.read_csv(ebay_fee_file, sep=",")
 
     ebay_orders.columns = ebay_orders.columns.str.strip()
     ebay_fee.columns = ebay_fee.columns.str.strip()
@@ -225,8 +209,9 @@ if ebay_orders_file and ebay_fee_file:
     e = pd.DataFrame()
 
     e["Data ordine"] = pd.to_datetime(
-        df["Data vendita"], errors="coerce"
-    ).dt.strftime("%d/%m/%Y")
+        df["Data vendita"],
+        errors="coerce"
+    )
 
     e["Marketplace"] = "eBay"
     e["Paese (Mercato)"] = df["Paese dell'acquirente"].apply(map_country)
@@ -238,14 +223,12 @@ if ebay_orders_file and ebay_fee_file:
 
         if pd.notna(sku) and str(sku).strip() != "":
             return map_sku(sku)
+
         return titolo
 
     e["Prodotto"] = df.apply(get_product_ebay, axis=1)
 
-    e["Quantità ordinata"] = pd.to_numeric(
-        df["Quantità"], errors="coerce"
-    ).fillna(0)
-
+    e["Quantità ordinata"] = pd.to_numeric(df["Quantità"], errors="coerce").fillna(0)
     e["Fatturato (Lordo)"] = df["Costo totale"].apply(to_float)
     e["Fee (€)"] = df["fee_totale"].fillna(0)
 
@@ -254,33 +237,29 @@ if ebay_orders_file and ebay_fee_file:
 # -------------------------
 # MERGE FINALE
 # -------------------------
-frames = []
-
-if amazon_df is not None:
-    frames.append(amazon_df)
-
-if temu_df is not None:
-    frames.append(temu_df)
-
-if ebay_df is not None:
-    frames.append(ebay_df)
+frames = [f for f in [amazon_df, temu_df, ebay_df] if f is not None]
 
 if frames:
 
     final_df = pd.concat(frames, ignore_index=True)
-    final_df = final_df.sort_values("Data ordine", ascending=True)
+    final_df = final_df.sort_values("Data ordine")
 
     st.success("Elaborazione completata!")
     st.dataframe(final_df)
 
     output = BytesIO()
 
+    export_df = final_df.copy()
+    export_df["Data ordine"] = export_df["Data ordine"].dt.strftime("%d/%m/%Y")
+
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        final_df.to_excel(writer, index=False, sheet_name="Orders")
+        export_df.to_excel(writer, index=False, sheet_name="Orders")
+
+    output.seek(0)
 
     st.download_button(
         "⬇️ Scarica Excel finale",
-        data=output.getvalue(),
+        data=output,
         file_name="orders_final.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
