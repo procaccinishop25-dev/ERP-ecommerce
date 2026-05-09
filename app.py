@@ -37,7 +37,7 @@ product_map = dict(zip(products_df["codice"], products_df["nome_prodotto"]))
 # UPLOAD
 # -------------------------
 orders_file = st.file_uploader("📄 Amazon ORDINI", type=["csv", "txt"])
-comm_file = st.file_uploader("📄 Amazon COMMISSIONI", type=["csv", "txt"])
+comm_file = st.file_uploader("📄 Amazon COMMISSIONI (Excel)", type=["xlsx", "csv"])
 temu_file = st.file_uploader("📄 TEMU FILE", type=["csv", "txt", "xlsx"])
 ebay_orders_file = st.file_uploader("📄 eBay ORDINI", type=["csv", "txt", "xlsx"])
 ebay_fee_file = st.file_uploader("📄 eBay COMMISSIONI", type=["csv", "txt", "xlsx"])
@@ -93,27 +93,26 @@ amazon_df = None
 if orders_file and comm_file:
 
     orders = pd.read_csv(orders_file, sep="\t")
-    comm = pd.read_csv(comm_file, sep=",")
 
-    # -------------------------
-    # FIX CHIAVI (FONDAMENTALE)
-    # -------------------------
-    orders["amazon-order-id"] = (
-        orders["amazon-order-id"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-    )
+    # 🔥 COMMISSIONI (EXCEL + CSV SUPPORT)
+    if comm_file.name.endswith(".xlsx"):
+        comm = pd.read_excel(comm_file)
+    else:
+        comm = pd.read_csv(comm_file, sep=",")
+
+    comm.columns = comm.columns.str.strip()
+    orders.columns = orders.columns.str.strip()
+
+    # 🔥 FIX CHIAVI
+    orders["amazon-order-id"] = orders["amazon-order-id"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+    comm["Numero di ordine"] = comm["Numero di ordine"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
 
     comm = comm.rename(columns={
         "Numero di ordine": "amazon-order-id",
         "Commissioni Amazon": "fee"
     })
 
-    comm["amazon-order-id"] = (
-        comm["amazon-order-id"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-    )
-
-    # -------------------------
     # MERGE
-    # -------------------------
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
     df["Data ordine"] = pd.to_datetime(
@@ -126,9 +125,7 @@ if orders_file and comm_file:
 
     mapped = df["sku"].apply(lambda x: pd.Series(map_sku(x)))
     df["Prodotto"] = mapped[0]
-    df["Log"] = mapped[1]
-
-    df["Log"] = df["Log"].fillna("OK")
+    df["Log"] = mapped[1].fillna("OK")
 
     amazon_df = df[[
         "Data ordine","Marketplace","ship-country","amazon-order-id",
@@ -167,11 +164,7 @@ if temu_file:
 
     t = pd.DataFrame()
 
-    t["Data ordine"] = pd.to_datetime(
-        temu[date_col],
-        errors="coerce"
-    ).dt.date
-
+    t["Data ordine"] = pd.to_datetime(temu[date_col], errors="coerce").dt.date
     t["Marketplace"] = "Temu"
     t["Paese (Mercato)"] = temu[country_col].apply(map_country)
     t["Order ID (Codice Market)"] = temu[order_col]
@@ -189,10 +182,7 @@ if temu_file:
     t[["Prodotto", "Log"]] = temu.apply(get_product, axis=1)
     t["Log"] = t["Log"].fillna("OK")
 
-    t["Quantità ordinata"] = pd.to_numeric(
-        temu[qty_col],
-        errors="coerce"
-    ).fillna(0)
+    t["Quantità ordinata"] = pd.to_numeric(temu[qty_col], errors="coerce").fillna(0)
 
     def safe(df, col):
         return df[col].apply(to_float) if col in df.columns else 0
@@ -238,11 +228,7 @@ if ebay_orders_file and ebay_fee_file:
 
     e = pd.DataFrame()
 
-    e["Data ordine"] = pd.to_datetime(
-        df["Data vendita"],
-        errors="coerce"
-    ).dt.date
-
+    e["Data ordine"] = pd.to_datetime(df["Data vendita"], errors="coerce").dt.date
     e["Marketplace"] = "eBay"
     e["Paese (Mercato)"] = df["Paese dell'acquirente"].apply(map_country)
     e["Order ID (Codice Market)"] = df["Numero ordine"]
