@@ -94,11 +94,12 @@ if orders_file and comm_file:
 
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
+    # ✔ FIX: senza orario finale
     df["Data ordine"] = pd.to_datetime(
         df["purchase-date"],
         errors="coerce",
         utc=True
-    ).dt.tz_convert("Europe/Rome").dt.tz_localize(None)
+    ).dt.tz_convert("Europe/Rome").dt.date
 
     df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
     df["Prodotto"] = df["sku"].apply(map_sku)
@@ -140,11 +141,11 @@ if temu_file:
 
     t = pd.DataFrame()
 
-    # DATE senza orario
+    # ✔ FIX: elimina orario subito
     t["Data ordine"] = pd.to_datetime(
         temu[date_col],
         errors="coerce"
-    )
+    ).dt.date
 
     t["Marketplace"] = "Temu"
     t["Paese (Mercato)"] = temu[country_col].apply(map_country)
@@ -208,10 +209,11 @@ if ebay_orders_file and ebay_fee_file:
 
     e = pd.DataFrame()
 
+    # ✔ FIX: senza orario
     e["Data ordine"] = pd.to_datetime(
         df["Data vendita"],
         errors="coerce"
-    )
+    ).dt.date
 
     e["Marketplace"] = "eBay"
     e["Paese (Mercato)"] = df["Paese dell'acquirente"].apply(map_country)
@@ -250,11 +252,8 @@ if frames:
     output = BytesIO()
     export_df = final_df.copy()
 
-    # 🔥 FIX DEFINITIVO DATA SENZA ORARIO
-    export_df["Data ordine"] = pd.to_datetime(
-        export_df["Data ordine"],
-        errors="coerce"
-    ).dt.normalize().dt.strftime("%d/%m/%Y")
+    # ✔ EXPORT FINALE SENZA ORARIO
+    export_df["Data ordine"] = export_df["Data ordine"].astype(str)
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         export_df.to_excel(writer, index=False, sheet_name="Orders")
