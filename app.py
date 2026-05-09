@@ -140,7 +140,6 @@ if temu_file:
 
     t = pd.DataFrame()
 
-    # DATA già standard (consigliato)
     t["Data ordine"] = pd.to_datetime(
         temu[date_col],
         errors="coerce"
@@ -250,7 +249,11 @@ if frames:
     output = BytesIO()
 
     export_df = final_df.copy()
-    export_df["Data ordine"] = export_df["Data ordine"].dt.strftime("%d/%m/%Y")
+
+    export_df["Data ordine"] = pd.to_datetime(
+        export_df["Data ordine"],
+        errors="coerce"
+    ).dt.strftime("%d/%m/%Y")
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         export_df.to_excel(writer, index=False, sheet_name="Orders")
