@@ -15,12 +15,25 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.title("📦 Multi Marketplace Processor")
 
 # -------------------------
-# LOG PER RIGA
+# LOG PER RIGA (OK / ERRORI)
 # -------------------------
 def add_row_log(log, msg):
     if log == "OK" or log == "" or pd.isna(log):
         return msg
     return log + " | " + msg
+
+# -------------------------
+# NORMALIZZAZIONE ID (FIX DEFINITIVO MATCH AMAZON)
+# -------------------------
+def normalize_id(x):
+    return (
+        str(x)
+        .replace("\u200b", "")   # zero-width space
+        .replace("–", "-")       # en dash
+        .replace("−", "-")       # minus unicode
+        .replace(" ", "")        # spazi invisibili
+        .strip()
+    )
 
 # -------------------------
 # PRODOTTI SUPABASE
@@ -94,18 +107,17 @@ if orders_file and comm_file:
 
     orders = pd.read_csv(orders_file, sep="\t")
 
-    # 🔥 COMMISSIONI (EXCEL + CSV SUPPORT)
     if comm_file.name.endswith(".xlsx"):
         comm = pd.read_excel(comm_file)
     else:
         comm = pd.read_csv(comm_file, sep=",")
 
-    comm.columns = comm.columns.str.strip()
     orders.columns = orders.columns.str.strip()
+    comm.columns = comm.columns.str.strip()
 
-    # 🔥 FIX CHIAVI
-    orders["amazon-order-id"] = orders["amazon-order-id"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-    comm["Numero di ordine"] = comm["Numero di ordine"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+    # 🔥 NORMALIZZAZIONE CHIAVI (FIX DEFINITIVO)
+    orders["amazon-order-id"] = orders["amazon-order-id"].apply(normalize_id)
+    comm["Numero di ordine"] = comm["Numero di ordine"].apply(normalize_id)
 
     comm = comm.rename(columns={
         "Numero di ordine": "amazon-order-id",
@@ -211,7 +223,8 @@ if ebay_orders_file and ebay_fee_file:
     ebay_orders.columns = ebay_orders.columns.str.strip()
     ebay_fee.columns = ebay_fee.columns.str.strip()
 
-    ebay_orders["Numero ordine"] = ebay_orders["Numero ordine"].astype(str).str.strip()
+    ebay_orders["Numero ordine"] = ebay_orders["Numero ordine"].apply(normalize_id)
+    ebay_fee["Numero ordine"] = ebay_fee["Numero ordine"].apply(normalize_id)
 
     def clean_fee(x):
         return abs(to_float(x))
