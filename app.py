@@ -15,7 +15,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.title("📦 Multi Marketplace Processor")
 
 # -------------------------
-# UTILS LOG (NUOVO)
+# LOG PER RIGA
 # -------------------------
 def add_row_log(log, msg):
     if log == "OK" or log == "" or pd.isna(log):
@@ -85,9 +85,9 @@ def map_country(val):
         "spain": "ES"
     }.get(val, val[:2].upper())
 
-# -------------------------
+# =========================================================
 # AMAZON
-# -------------------------
+# =========================================================
 amazon_df = None
 
 if orders_file and comm_file:
@@ -95,11 +95,25 @@ if orders_file and comm_file:
     orders = pd.read_csv(orders_file, sep="\t")
     comm = pd.read_csv(comm_file, sep=",")
 
+    # -------------------------
+    # FIX CHIAVI (FONDAMENTALE)
+    # -------------------------
+    orders["amazon-order-id"] = (
+        orders["amazon-order-id"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+    )
+
     comm = comm.rename(columns={
         "Numero di ordine": "amazon-order-id",
         "Commissioni Amazon": "fee"
     })
 
+    comm["amazon-order-id"] = (
+        comm["amazon-order-id"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+    )
+
+    # -------------------------
+    # MERGE
+    # -------------------------
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
     df["Data ordine"] = pd.to_datetime(
@@ -114,6 +128,8 @@ if orders_file and comm_file:
     df["Prodotto"] = mapped[0]
     df["Log"] = mapped[1]
 
+    df["Log"] = df["Log"].fillna("OK")
+
     amazon_df = df[[
         "Data ordine","Marketplace","ship-country","amazon-order-id",
         "Prodotto","quantity","item-price","fee","Log"
@@ -125,9 +141,9 @@ if orders_file and comm_file:
         "fee": "Fee (€)"
     })
 
-# -------------------------
+# =========================================================
 # TEMU
-# -------------------------
+# =========================================================
 temu_df = None
 
 if temu_file:
@@ -171,6 +187,7 @@ if temu_file:
         return pd.Series([name, "SKU mancante, usato nome articolo"])
 
     t[["Prodotto", "Log"]] = temu.apply(get_product, axis=1)
+    t["Log"] = t["Log"].fillna("OK")
 
     t["Quantità ordinata"] = pd.to_numeric(
         temu[qty_col],
@@ -191,9 +208,9 @@ if temu_file:
 
     temu_df = t
 
-# -------------------------
+# =========================================================
 # EBAY
-# -------------------------
+# =========================================================
 ebay_df = None
 
 if ebay_orders_file and ebay_fee_file:
@@ -203,6 +220,8 @@ if ebay_orders_file and ebay_fee_file:
 
     ebay_orders.columns = ebay_orders.columns.str.strip()
     ebay_fee.columns = ebay_fee.columns.str.strip()
+
+    ebay_orders["Numero ordine"] = ebay_orders["Numero ordine"].astype(str).str.strip()
 
     def clean_fee(x):
         return abs(to_float(x))
@@ -239,6 +258,7 @@ if ebay_orders_file and ebay_fee_file:
         return pd.Series([titolo, "SKU mancante, usato titolo"])
 
     e[["Prodotto", "Log"]] = df.apply(get_product_ebay, axis=1)
+    e["Log"] = e["Log"].fillna("OK")
 
     e["Quantità ordinata"] = pd.to_numeric(df["Quantità"], errors="coerce").fillna(0)
     e["Fatturato (Lordo)"] = df["Costo totale"].apply(to_float)
@@ -246,9 +266,9 @@ if ebay_orders_file and ebay_fee_file:
 
     ebay_df = e
 
-# -------------------------
+# =========================================================
 # MERGE FINALE
-# -------------------------
+# =========================================================
 frames = [f for f in [amazon_df, temu_df, ebay_df] if f is not None]
 
 if frames:
@@ -260,7 +280,6 @@ if frames:
     st.dataframe(final_df)
 
     output = BytesIO()
-
     export_df = final_df.copy()
     export_df["Data ordine"] = export_df["Data ordine"].astype(str)
 
