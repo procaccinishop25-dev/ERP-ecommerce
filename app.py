@@ -42,8 +42,21 @@ def extract_code(sku):
 
 def map_sku(original_sku):
     code = extract_code(original_sku)
-    name = product_map.get(code)
-    return f"{name} - {code}" if name else original_sku
+    product_name = product_map.get(code)
+
+    if product_name:
+        return f"{product_name} - {code}"
+
+    return original_sku
+
+def clean_marketplace(val):
+    return str(val).split(".")[0] if pd.notna(val) else val
+
+def find_col(df, keyword):
+    for c in df.columns:
+        if keyword.lower() in c.lower():
+            return c
+    return None
 
 def to_float(x):
     try:
@@ -67,22 +80,18 @@ def map_country(val):
 # -------------------------
 # ERROR BUILDER
 # -------------------------
-def build_errors(data):
+def build_errors(sku_ok, fee_ok, price_ok, qty_ok, date_ok):
     errors = []
 
-    if data.get("sku_ok") is False:
+    if not sku_ok:
         errors.append("SKU non trovato")
-
-    if data.get("fee_ok") is False:
+    if not fee_ok:
         errors.append("Fee mancante")
-
-    if data.get("price_ok") is False:
+    if not price_ok:
         errors.append("Prezzo non valido")
-
-    if data.get("qty_ok") is False:
+    if not qty_ok:
         errors.append("Quantità non valida")
-
-    if data.get("date_ok") is False:
+    if not date_ok:
         errors.append("Data non valida")
 
     return "OK" if len(errors) == 0 else " | ".join(errors)
@@ -110,27 +119,32 @@ if orders_file and comm_file:
         utc=True
     ).dt.tz_convert("Europe/Rome").dt.date
 
+    df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
     df["Prodotto"] = df["sku"].apply(map_sku)
 
-    df["Errori riga"] = df.apply(lambda r: build_errors({
-        "sku_ok": pd.notna(r["sku"]),
-        "fee_ok": pd.notna(r["fee"]),
-        "price_ok": pd.notna(r["item-price"]),
-        "qty_ok": pd.notna(r["quantity"]),
-        "date_ok": pd.notna(r["Data ordine"])
-    }), axis=1)
+    df["Errori riga"] = [
+        build_errors(
+            sku_ok=pd.notna(sku),
+            fee_ok=pd.notna(fee),
+            price_ok=pd.notna(price),
+            qty_ok=pd.notna(qty),
+            date_ok=pd.notna(date)
+        )
+        for sku, fee, price, qty, date in zip(
+            df["sku"],
+            df["fee"],
+            df["item-price"],
+            df["quantity"],
+            df["Data ordine"]
+        )
+    ]
 
     amazon_df = df[[
-        "Data ordine",
-        "sku",
-        "Prodotto",
-        "quantity",
-        "item-price",
-        "fee",
-        "amazon-order-id",
-        "Errori riga"
+        "Data ordine","Marketplace","ship-country","amazon-order-id",
+        "Prodotto","quantity","item-price","fee","Errori riga"
     ]].rename(columns={
-        "amazon-order-id": "Order ID",
+        "ship-country": "Paese (Mercato)",
+        "amazon-order-id": "Order ID (Codice Market)",
         "quantity": "Quantità ordinata",
         "item-price": "Fatturato (Lordo)",
         "fee": "Fee (€)"
@@ -150,41 +164,60 @@ if temu_file:
 
     temu.columns = temu.columns.str.replace("\ufeff", "").str.strip()
 
-    def find_col(df, keyword):
-        for c in df.columns:
-            if keyword.lower() in c.lower():
-                return c
-        return None
-
     date_col = find_col(temu, "data di acquisto")
+    country_col = find_col(temu, "paese")
+    order_col = find_col(temu, "id ordine")
     sku_col = find_col(temu, "codice sku")
     qty_col = find_col(temu, "quantità")
 
+    if date_col is None:
+        st.error("❌ Colonna data Temu non trovata")
+        st.stop()
+
     t = pd.DataFrame()
 
-    t["Data ordine"] = pd.to_datetime(temu[date_col], errors="coerce").dt.date
+    t["Data ordine"] = pd.to_datetime(
+        temu[date_col],
+        errors="coerce"
+    ).dt.date
+
+    t["Marketplace"] = "Temu"
+    t["Paese (Mercato)"] = temu[country_col].apply(map_country)
+    t["Order ID (Codice Market)"] = temu[order_col]
 
     def get_product(row):
         sku = row.get(sku_col)
-        if pd.notna(sku):
+        name = row.get("nome dell'articolo")
+
+        if pd.notna(sku) and str(sku).strip() != "":
             return map_sku(sku)
-        return row.get("nome dell'articolo")
+
+        return name
 
     t["Prodotto"] = temu.apply(get_product, axis=1)
 
-    t["Errori riga"] = t.apply(lambda r: build_errors({
-        "sku_ok": pd.notna(r.get("Prodotto")),
-        "fee_ok": True,
-        "price_ok": True,
-        "qty_ok": pd.notna(temu.loc[r.name, qty_col]),
-        "date_ok": pd.notna(r["Data ordine"])
-    }), axis=1)
-
-    t["Marketplace"] = "Temu"
-    t["Quantità ordinata"] = pd.to_numeric(temu[qty_col], errors="coerce").fillna(0)
+    t["Quantità ordinata"] = pd.to_numeric(
+        temu[qty_col],
+        errors="coerce"
+    ).fillna(0)
 
     t["Fatturato (Lordo)"] = 0
-    t["Fee (€)"] = 0
+    t["Fee (€)"] = 0.0
+
+    t["Errori riga"] = [
+        build_errors(
+            sku_ok=pd.notna(sku),
+            fee_ok=True,
+            price_ok=True,
+            qty_ok=pd.notna(qty),
+            date_ok=pd.notna(date)
+        )
+        for sku, qty, date in zip(
+            temu[sku_col],
+            t["Quantità ordinata"],
+            t["Data ordine"]
+        )
+    ]
 
     temu_df = t
 
@@ -201,32 +234,60 @@ if ebay_orders_file and ebay_fee_file:
     ebay_orders.columns = ebay_orders.columns.str.strip()
     ebay_fee.columns = ebay_fee.columns.str.strip()
 
-    ebay_fee["fee_totale"] = ebay_fee.fillna(0).select_dtypes(include="number").sum(axis=1)
+    def clean_fee(x):
+        return abs(to_float(x))
 
-    df = ebay_orders.merge(
-        ebay_fee.groupby("Numero ordine")["fee_totale"].sum().reset_index(),
-        on="Numero ordine",
-        how="left"
+    ebay_fee["fee_totale"] = (
+        ebay_fee["Commissione sul valore finale - fissa"].apply(clean_fee)
+        + ebay_fee["Commissione sul valore finale - variabile"].apply(clean_fee)
+        + ebay_fee["Tariffa per l'adeguamento normativo"].apply(clean_fee)
     )
+
+    ebay_fee = ebay_fee.groupby("Numero ordine")["fee_totale"].sum().reset_index()
+
+    df = ebay_orders.merge(ebay_fee, on="Numero ordine", how="left")
 
     e = pd.DataFrame()
 
-    e["Data ordine"] = pd.to_datetime(df["Data vendita"], errors="coerce").dt.date
-
-    e["Prodotto"] = df.get("Titolo")
-
-    e["Errori riga"] = e.apply(lambda r: build_errors({
-        "sku_ok": True,
-        "fee_ok": pd.notna(df.loc[r.name, "fee_totale"]),
-        "price_ok": pd.notna(df.loc[r.name, "Costo totale"]),
-        "qty_ok": pd.notna(df.loc[r.name, "Quantità"]),
-        "date_ok": pd.notna(r["Data ordine"])
-    }), axis=1)
+    e["Data ordine"] = pd.to_datetime(
+        df["Data vendita"],
+        errors="coerce"
+    ).dt.date
 
     e["Marketplace"] = "eBay"
+    e["Paese (Mercato)"] = df["Paese dell'acquirente"].apply(map_country)
+    e["Order ID (Codice Market)"] = df["Numero ordine"]
+
+    def get_product_ebay(row):
+        sku = row.get("Etichetta personalizzata")
+        titolo = row.get("Titolo")
+
+        if pd.notna(sku) and str(sku).strip() != "":
+            return map_sku(sku)
+
+        return titolo
+
+    e["Prodotto"] = df.apply(get_product_ebay, axis=1)
+
     e["Quantità ordinata"] = pd.to_numeric(df["Quantità"], errors="coerce").fillna(0)
     e["Fatturato (Lordo)"] = df["Costo totale"].apply(to_float)
     e["Fee (€)"] = df["fee_totale"].fillna(0)
+
+    e["Errori riga"] = [
+        build_errors(
+            sku_ok=True,
+            fee_ok=pd.notna(fee),
+            price_ok=pd.notna(price),
+            qty_ok=pd.notna(qty),
+            date_ok=pd.notna(date)
+        )
+        for fee, price, qty, date in zip(
+            df["fee_totale"],
+            df["Costo totale"],
+            df["Quantità"],
+            e["Data ordine"]
+        )
+    ]
 
     ebay_df = e
 
@@ -244,9 +305,12 @@ if frames:
     st.dataframe(final_df)
 
     output = BytesIO()
+    export_df = final_df.copy()
+    export_df["Data ordine"] = export_df["Data ordine"].astype(str)
+    export_df["Errori riga"] = export_df.get("Errori riga", "OK")
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        final_df.to_excel(writer, index=False, sheet_name="Orders")
+        export_df.to_excel(writer, index=False, sheet_name="Orders")
 
     output.seek(0)
 
