@@ -78,7 +78,7 @@ def map_country(val):
     }.get(val, val[:2].upper())
 
 # -------------------------
-# ERROR BUILDER
+# ERROR BUILDER (AUDIT ONLY)
 # -------------------------
 def build_errors(sku_ok, fee_ok, price_ok, qty_ok, date_ok):
     errors = []
@@ -307,7 +307,6 @@ if frames:
     output = BytesIO()
     export_df = final_df.copy()
     export_df["Data ordine"] = export_df["Data ordine"].astype(str)
-    export_df["Errori riga"] = export_df.get("Errori riga", "OK")
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         export_df.to_excel(writer, index=False, sheet_name="Orders")
