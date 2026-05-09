@@ -47,7 +47,7 @@ def map_sku(original_sku):
     if product_name:
         return f"{product_name} - {code}"
 
-    return f"SKU NON TROVATO - {original_sku}"
+    return original_sku
 
 def clean_marketplace(val):
     return str(val).split(".")[0] if pd.notna(val) else val
@@ -78,27 +78,8 @@ def map_country(val):
     }.get(val, val[:2].upper())
 
 # -------------------------
-# ERROR BUILDER (AUDIT ONLY)
-# -------------------------
-def build_errors(sku_ok, fee_ok, price_ok, qty_ok, date_ok):
-    errors = []
-
-    if not sku_ok:
-        errors.append("SKU non trovato")
-    if not fee_ok:
-        errors.append("Fee mancante")
-    if not price_ok:
-        errors.append("Prezzo non valido")
-    if not qty_ok:
-        errors.append("Quantità non valida")
-    if not date_ok:
-        errors.append("Data non valida")
-
-    return "OK" if len(errors) == 0 else " | ".join(errors)
-
-# =====================================================
 # AMAZON
-# =====================================================
+# -------------------------
 amazon_df = None
 
 if orders_file and comm_file:
@@ -113,11 +94,7 @@ if orders_file and comm_file:
 
     df = orders.merge(comm, on="amazon-order-id", how="left")
 
-    # SAFE NUMERIC FIX
-    df["item-price"] = df["item-price"].fillna(0)
-    df["fee"] = df["fee"].fillna(0)
-    df["quantity"] = df["quantity"].fillna(0)
-
+    # ✔ FIX: senza orario finale
     df["Data ordine"] = pd.to_datetime(
         df["purchase-date"],
         errors="coerce",
@@ -127,26 +104,9 @@ if orders_file and comm_file:
     df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
     df["Prodotto"] = df["sku"].apply(map_sku)
 
-    df["Errori riga"] = [
-        build_errors(
-            sku_ok="SKU NON TROVATO" not in map_sku(sku),
-            fee_ok=fee is not None,
-            price_ok=price is not None,
-            qty_ok=qty is not None,
-            date_ok=pd.notna(date)
-        )
-        for sku, fee, price, qty, date in zip(
-            df["sku"],
-            df["fee"],
-            df["item-price"],
-            df["quantity"],
-            df["Data ordine"]
-        )
-    ]
-
     amazon_df = df[[
         "Data ordine","Marketplace","ship-country","amazon-order-id",
-        "Prodotto","quantity","item-price","fee","Errori riga"
+        "Prodotto","quantity","item-price","fee"
     ]].rename(columns={
         "ship-country": "Paese (Mercato)",
         "amazon-order-id": "Order ID (Codice Market)",
@@ -155,9 +115,9 @@ if orders_file and comm_file:
         "fee": "Fee (€)"
     })
 
-# =====================================================
+# -------------------------
 # TEMU
-# =====================================================
+# -------------------------
 temu_df = None
 
 if temu_file:
@@ -175,8 +135,13 @@ if temu_file:
     sku_col = find_col(temu, "codice sku")
     qty_col = find_col(temu, "quantità")
 
+    if date_col is None:
+        st.error("❌ Colonna data Temu non trovata")
+        st.stop()
+
     t = pd.DataFrame()
 
+    # ✔ FIX: elimina orario subito
     t["Data ordine"] = pd.to_datetime(
         temu[date_col],
         errors="coerce"
@@ -202,29 +167,23 @@ if temu_file:
         errors="coerce"
     ).fillna(0)
 
-    t["Fatturato (Lordo)"] = 0
-    t["Fee (€)"] = 0.0
+    def safe(df, col):
+        return df[col].apply(to_float) if col in df.columns else 0
 
-    t["Errori riga"] = [
-        build_errors(
-            sku_ok="SKU NON TROVATO" not in str(map_sku(sku)),
-            fee_ok=True,
-            price_ok=True,
-            qty_ok=qty is not None,
-            date_ok=pd.notna(date)
-        )
-        for sku, qty, date in zip(
-            temu[sku_col],
-            t["Quantità ordinata"],
-            t["Data ordine"]
-        )
-    ]
+    t["Fatturato (Lordo)"] = (
+        safe(temu, "Totale prezzo base dopo lo sconto")
+        + safe(temu, "Totale spedizione (imposte escluse)")
+        + safe(temu, "Imposta sull'articolo")
+        + safe(temu, "Imposta sulla spedizione")
+    )
+
+    t["Fee (€)"] = 0.0
 
     temu_df = t
 
-# =====================================================
+# -------------------------
 # EBAY
-# =====================================================
+# -------------------------
 ebay_df = None
 
 if ebay_orders_file and ebay_fee_file:
@@ -235,18 +194,22 @@ if ebay_orders_file and ebay_fee_file:
     ebay_orders.columns = ebay_orders.columns.str.strip()
     ebay_fee.columns = ebay_fee.columns.str.strip()
 
-    ebay_fee["fee_totale"] = ebay_fee.fillna(0).select_dtypes(include="number").sum(axis=1)
+    def clean_fee(x):
+        return abs(to_float(x))
 
-    df = ebay_orders.merge(
-        ebay_fee.groupby("Numero ordine")["fee_totale"].sum().reset_index(),
-        on="Numero ordine",
-        how="left"
+    ebay_fee["fee_totale"] = (
+        ebay_fee["Commissione sul valore finale - fissa"].apply(clean_fee)
+        + ebay_fee["Commissione sul valore finale - variabile"].apply(clean_fee)
+        + ebay_fee["Tariffa per l'adeguamento normativo"].apply(clean_fee)
     )
 
-    df = df.fillna(0)
+    ebay_fee = ebay_fee.groupby("Numero ordine")["fee_totale"].sum().reset_index()
+
+    df = ebay_orders.merge(ebay_fee, on="Numero ordine", how="left")
 
     e = pd.DataFrame()
 
+    # ✔ FIX: senza orario
     e["Data ordine"] = pd.to_datetime(
         df["Data vendita"],
         errors="coerce"
@@ -271,27 +234,11 @@ if ebay_orders_file and ebay_fee_file:
     e["Fatturato (Lordo)"] = df["Costo totale"].apply(to_float)
     e["Fee (€)"] = df["fee_totale"].fillna(0)
 
-    e["Errori riga"] = [
-        build_errors(
-            sku_ok=True,
-            fee_ok=fee is not None,
-            price_ok=price is not None,
-            qty_ok=qty is not None,
-            date_ok=pd.notna(date)
-        )
-        for fee, price, qty, date in zip(
-            df["fee_totale"],
-            df["Costo totale"],
-            df["Quantità"],
-            e["Data ordine"]
-        )
-    ]
-
     ebay_df = e
 
-# =====================================================
+# -------------------------
 # MERGE FINALE
-# =====================================================
+# -------------------------
 frames = [f for f in [amazon_df, temu_df, ebay_df] if f is not None]
 
 if frames:
@@ -304,6 +251,8 @@ if frames:
 
     output = BytesIO()
     export_df = final_df.copy()
+
+    # ✔ EXPORT FINALE SENZA ORARIO
     export_df["Data ordine"] = export_df["Data ordine"].astype(str)
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
