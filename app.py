@@ -15,12 +15,12 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.title("📦 Multi Marketplace Processor")
 
 # -------------------------
-# LOG SYSTEM (NUOVO)
+# UTILS LOG (NUOVO)
 # -------------------------
-logs = []
-
-def add_log(msg):
-    logs.append(msg)
+def add_row_log(log, msg):
+    if log == "OK" or log == "" or pd.isna(log):
+        return msg
+    return log + " | " + msg
 
 # -------------------------
 # PRODOTTI SUPABASE
@@ -48,15 +48,14 @@ ebay_fee_file = st.file_uploader("📄 eBay COMMISSIONI", type=["csv", "txt", "x
 def extract_code(sku):
     return str(sku).split("_")[1] if "_" in str(sku) else sku
 
-def map_sku(original_sku):
-    code = extract_code(original_sku)
+def map_sku(sku):
+    code = extract_code(sku)
     product_name = product_map.get(code)
 
     if product_name:
-        return f"{product_name} - {code}"
+        return f"{product_name} - {code}", "OK"
 
-    add_log(f"SKU non trovato nel mapping: {original_sku}")
-    return original_sku
+    return sku, "SKU non trovato nel mapping"
 
 def clean_marketplace(val):
     return str(val).split(".")[0] if pd.notna(val) else val
@@ -110,11 +109,14 @@ if orders_file and comm_file:
     ).dt.tz_convert("Europe/Rome").dt.date
 
     df["Marketplace"] = df["sales-channel"].apply(clean_marketplace)
-    df["Prodotto"] = df["sku"].apply(map_sku)
+
+    mapped = df["sku"].apply(lambda x: pd.Series(map_sku(x)))
+    df["Prodotto"] = mapped[0]
+    df["Log"] = mapped[1]
 
     amazon_df = df[[
         "Data ordine","Marketplace","ship-country","amazon-order-id",
-        "Prodotto","quantity","item-price","fee"
+        "Prodotto","quantity","item-price","fee","Log"
     ]].rename(columns={
         "ship-country": "Paese (Mercato)",
         "amazon-order-id": "Order ID (Codice Market)",
@@ -144,7 +146,6 @@ if temu_file:
     qty_col = find_col(temu, "quantità")
 
     if date_col is None:
-        add_log("Errore: colonna data Temu non trovata")
         st.error("❌ Colonna data Temu non trovata")
         st.stop()
 
@@ -164,11 +165,12 @@ if temu_file:
         name = row.get("nome dell'articolo")
 
         if pd.notna(sku) and str(sku).strip() != "":
-            return map_sku(sku)
+            product, log = map_sku(sku)
+            return pd.Series([product, log])
 
-        return name
+        return pd.Series([name, "SKU mancante, usato nome articolo"])
 
-    t["Prodotto"] = temu.apply(get_product, axis=1)
+    t[["Prodotto", "Log"]] = temu.apply(get_product, axis=1)
 
     t["Quantità ordinata"] = pd.to_numeric(
         temu[qty_col],
@@ -176,10 +178,7 @@ if temu_file:
     ).fillna(0)
 
     def safe(df, col):
-        if col not in df.columns:
-            add_log(f"Colonna mancante Temu: {col}")
-            return 0
-        return df[col].apply(to_float)
+        return df[col].apply(to_float) if col in df.columns else 0
 
     t["Fatturato (Lordo)"] = (
         safe(temu, "Totale prezzo base dopo lo sconto")
@@ -234,11 +233,12 @@ if ebay_orders_file and ebay_fee_file:
         titolo = row.get("Titolo")
 
         if pd.notna(sku) and str(sku).strip() != "":
-            return map_sku(sku)
+            product, log = map_sku(sku)
+            return pd.Series([product, log])
 
-        return titolo
+        return pd.Series([titolo, "SKU mancante, usato titolo"])
 
-    e["Prodotto"] = df.apply(get_product_ebay, axis=1)
+    e[["Prodotto", "Log"]] = df.apply(get_product_ebay, axis=1)
 
     e["Quantità ordinata"] = pd.to_numeric(df["Quantità"], errors="coerce").fillna(0)
     e["Fatturato (Lordo)"] = df["Costo totale"].apply(to_float)
@@ -259,17 +259,9 @@ if frames:
     st.success("Elaborazione completata!")
     st.dataframe(final_df)
 
-    # -------------------------
-    # LOG COLUMN (NUOVO)
-    # -------------------------
-    if logs:
-        final_df["Log"] = " | ".join(logs)
-    else:
-        final_df["Log"] = ""
-
     output = BytesIO()
-    export_df = final_df.copy()
 
+    export_df = final_df.copy()
     export_df["Data ordine"] = export_df["Data ordine"].astype(str)
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
